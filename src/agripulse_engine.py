@@ -145,24 +145,41 @@ class AgriPulseEngine:
         },
     }
 
-    _siia_df = None
+    _siia_df  = None
+    _sup_df   = None   # Cache local siia_superficie.csv (columnas conocidas)
+    _prod_df  = None
+    _rend_df  = None
 
     def _load_siia_data(self):
-        """
-        Carga y cachea los datos de estimaciones agrícolas desde la URL oficial.
-        """
+        """Carga datos remotos (MAGyP URL). Solo para módulos que usen su estructura."""
         if self._siia_df is None:
             try:
                 self.__class__._siia_df = pd.read_csv(self.SIIA_URL)
             except Exception as e:
-                print(f"Error descargando datos de SIIA: {e}")
-                # Fallback to local file if download fails
-                p = _DATA_DIR / 'siia_superficie.csv'
-                if p.exists():
-                    self.__class__._siia_df = pd.read_csv(p)
-                else:
-                    return pd.DataFrame() # Return empty if no local file
+                print(f"Error descargando SIIA URL: {e}")
+                self.__class__._siia_df = self._load_sup()
         return self._siia_df
+
+    def _load_sup(self):
+        """Carga local siia_superficie.csv (año, provincia, departamento, cultivo, lat, lon, zona_agroclimatica, sup_sembrada_ha)."""
+        if self._sup_df is None:
+            p = _DATA_DIR / 'siia_superficie.csv'
+            self.__class__._sup_df = pd.read_csv(p)
+        return self._sup_df
+
+    def _load_prod(self):
+        """Carga local siia_produccion.csv."""
+        if self._prod_df is None:
+            p = _DATA_DIR / 'siia_produccion.csv'
+            self.__class__._prod_df = pd.read_csv(p)
+        return self._prod_df
+
+    def _load_rend(self):
+        """Carga local siia_rendimiento.csv."""
+        if self._rend_df is None:
+            p = _DATA_DIR / 'siia_rendimiento.csv'
+            self.__class__._rend_df = pd.read_csv(p)
+        return self._rend_df
 
     def get_estado_fenologico_actual(self, cultivo='Maíz'):
         """
@@ -249,7 +266,7 @@ class AgriPulseEngine:
         Construye el dataset de mercado desde los CSVs históricos (año 2024).
         Reemplaza el SIIA_DATA hardcodeado con datos reales para 300+ departamentos.
         """
-        df_sup = self._load_siia_data()
+        df_sup = self._load_sup()
         # Usar datos de 2024 (última campaña disponible)
         df = df_sup[df_sup['año'] == 2024].copy()
 
@@ -550,7 +567,7 @@ class AgriPulseEngine:
         Categorías: EXPANSIÓN / MADUREZ / CONTRACCIÓN / EMERGENTE
         Incluye proyección polinómica a 2 campañas con R².
         """
-        df = self._load_siia_data()
+        df = self._load_sup()
         df = df[df['cultivo'] == cultivo].copy()
 
         anio_fin = 2024
@@ -650,20 +667,21 @@ class AgriPulseEngine:
         Compara el rendimiento real promedio vs. el potencial INTA por zona.
         Calcula demanda adicional de fertilizante si se cierra la brecha.
         """
-        df_siia = self._load_siia_data()
+        df_rend = self._load_rend()
+        df_sup  = self._load_sup()
 
         anio_fin = 2024
         anio_ini = anio_fin - anios_prom + 1
 
         rend_real = (
-            df_siia[(df_siia['cultivo'] == cultivo) & (df_siia['año'].between(anio_ini, anio_fin))]
+            df_rend[(df_rend['cultivo'] == cultivo) & (df_rend['año'].between(anio_ini, anio_fin))]
             .groupby(['provincia', 'departamento', 'lat', 'lon', 'zona_agroclimatica'])['rendimiento_tn_ha']
             .mean().reset_index()
             .rename(columns={'rendimiento_tn_ha': 'rend_real_avg'})
         )
 
         sup_act = (
-            df_siia[(df_siia['cultivo'] == cultivo) & (df_siia['año'] == anio_fin)]
+            df_sup[(df_sup['cultivo'] == cultivo) & (df_sup['año'] == anio_fin)]
             [['provincia', 'departamento', 'sup_sembrada_ha']]
         )
 
@@ -718,8 +736,8 @@ class AgriPulseEngine:
             'Superfosfato Triple': self.FERTILIZER_PRICES['Superfosfato Triple'],
         }
 
-        df = self._load_siia_data()
-        df = df[df['año'] == 2024]  # Use latest year for simulation base
+        # _build_market_df filtra año=2024 y renombra sup_sembrada_ha -> area_ha
+        df = self._build_market_df()
         factor_area = 1 + var_area_pct / 100
         factor_adopt = adopcion_pct / 100
 
@@ -952,7 +970,7 @@ class AgriPulseEngine:
             score_clima_base = 60
 
         # ── Componente 6: Tendencia producción ──────────────
-        df_siia = self._load_siia_data()
+        df_siia = self._load_rend()
         rend_sub = df_siia[(df_siia['cultivo'] == cultivo) & (df_siia['año'] >= 2019)]
         tend_df = rend_sub.groupby(['provincia', 'departamento'])['rendimiento_tn_ha'].apply(
             lambda s: np.polyfit(range(len(s)), s, 1)[0] if len(s) >= 3 else 0
@@ -1000,13 +1018,14 @@ class AgriPulseEngine:
         result['rank'] = result.index + 1
 
         # Argumento de venta automático
-        def gen_argumento(row):
+        # Capturar valores de closure explícitamente via default args
+        def gen_argumento(row, _sr=score_ratio, _pct=percentil):
             cls = row.get('clasificacion', 'MADUREZ')
             brecha = row.get('brecha_pct', 0)
             dem = row.get('demanda_total_tn', 0)
             score = row.get('score_final', 0)
             proj = row.get('proj_2026', 0)
-            momento = 'favorable' if score_ratio > 60 else ('neutro' if score_ratio > 40 else 'cuidadoso')
+            momento = 'favorable' if _sr > 60 else ('neutro' if _sr > 40 else 'cuidadoso')
 
             return (
                 f"{row['departamento']} ({row['provincia']}) — Score {score:.0f}/100. "
@@ -1014,7 +1033,7 @@ class AgriPulseEngine:
                 f"Brecha tecnológica {brecha:.0f}% vs potencial INTA — "
                 f"representa oportunidad de {dem/1000:.0f}K tn de fertilizante. "
                 f"Proyección 2026: {proj:,} ha. "
-                f"Momento de mercado: {momento} (ratio percentil {percentil}°)."
+                f"Momento de mercado: {momento} (ratio percentil {_pct}°)."
             )
 
         result['argumento_venta'] = result.apply(gen_argumento, axis=1)

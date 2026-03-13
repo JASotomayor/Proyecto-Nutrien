@@ -6,6 +6,7 @@ Versión 2.0 | Stack: Streamlit 1.55 · Plotly 6.x · Pandas 2.3
 
 import io
 import datetime
+from pathlib import Path
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -26,250 +27,213 @@ st.set_page_config(
 )
 
 # ══════════════════════════════════════════════════════════
-# CSS — TEMA NUTRIEN
+# CSS — TEMA NUTRIEN CORPORATIVO
 # ══════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
-}
+    :root {
+        --nutrien-green-dark:   #006B3F;
+        --nutrien-green-mid:    #00853F;
+        --nutrien-green-light:  #E8F5EC;
+        --nutrien-gray-100:     #F5F6F7;
+        --nutrien-gray-200:     #E8EAED;
+        --nutrien-gray-600:     #5F6368;
+        --nutrien-gray-900:     #1A1A1A;
+        --nutrien-white:        #FFFFFF;
+        --nutrien-amber:        #F5A623;
+        --nutrien-red:          #D32F2F;
+        --nutrien-blue:         #1565C0;
+    }
 
-/* ── HEADER BAR ── */
-.ap-header {
-    background: linear-gradient(135deg, #00A34F 0%, #007A3D 60%, #005C2E 100%);
-    padding: 1.2rem 2rem;
-    border-radius: 12px;
-    margin-bottom: 1.2rem;
-    color: #fff;
-    display: flex;
-    align-items: center;
-    gap: 1.2rem;
-}
-.ap-header h1 { margin: 0; font-size: 1.7rem; font-weight: 700; }
-.ap-header p  { margin: 0; font-size: 0.9rem; opacity: 0.88; }
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+        background-color: var(--nutrien-gray-100) !important;
+        color: var(--nutrien-gray-900);
+    }
 
-/* ── CARDS ── */
-.ap-card {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 1.2rem 1.4rem;
-    margin-bottom: 0.8rem;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-}
+    /* ─── GENERAL LAYOUT ─── */
+    .stApp {
+        background-color: var(--nutrien-gray-100);
+    }
 
-/* ── KPI BOXES ── */
-.kpi-box {
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-left: 4px solid #00A34F;
-    border-radius: 10px;
-    padding: 1rem 1.2rem;
-    text-align: center;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
-}
-.kpi-value {
-    font-size: 1.9rem;
-    font-weight: 700;
-    color: #00A34F;
-    line-height: 1.1;
-}
-.kpi-label {
-    font-size: 0.72rem;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-top: 0.25rem;
-}
-.kpi-sub {
-    font-size: 0.78rem;
-    color: #9ca3af;
-    margin-top: 0.15rem;
-}
+    /* ─── HEADER (to be replaced by custom html) ─── */
+    [data-testid="stHeader"] {
+        display: none;
+    }
 
-/* ── SECTION TITLES ── */
-.section-title {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #111827;
-    margin-bottom: 0.5rem;
-    padding-bottom: 0.4rem;
-    border-bottom: 2px solid #00A34F;
-    display: inline-block;
-}
-.section-subtitle {
-    font-size: 0.85rem;
-    color: #6b7280;
-    margin-bottom: 1rem;
-}
+    /* ─── TABS ─── */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2px;
+        padding: 0;
+        border-bottom: 2px solid var(--nutrien-gray-200);
+    }
 
-/* ── TABS ── */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 6px;
-    background: #f9fafb;
-    border-radius: 10px;
-    padding: 4px;
-}
-.stTabs [data-baseweb="tab"] {
-    border-radius: 8px;
-    padding: 0.45rem 1rem;
-    font-weight: 500;
-    font-size: 0.82rem;
-    color: #374151;
-    background: transparent;
-    border: none;
-}
-.stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #00A34F, #007A3D) !important;
-    color: #fff !important;
-    border-radius: 8px;
-}
+    .stTabs [data-baseweb="tab"] {
+        background-color: var(--nutrien-white);
+        color: var(--nutrien-gray-600);
+        border: 1px solid var(--nutrien-gray-200);
+        border-bottom: none;
+        border-radius: 6px 6px 0 0;
+        margin-right: 0px;
+        padding: 0.6rem 1.2rem;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: all 0.2s ease;
+    }
 
-/* ── BADGES ── */
-.badge-green {
-    background: rgba(0,163,79,0.12);
-    color: #00A34F;
-    border: 1px solid rgba(0,163,79,0.3);
-    border-radius: 20px;
-    padding: 3px 10px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    display: inline-block;
-}
-.badge-amber {
-    background: rgba(245,158,11,0.12);
-    color: #b45309;
-    border: 1px solid rgba(245,158,11,0.3);
-    border-radius: 20px;
-    padding: 3px 10px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    display: inline-block;
-}
-.badge-red {
-    background: rgba(220,38,38,0.10);
-    color: #dc2626;
-    border: 1px solid rgba(220,38,38,0.25);
-    border-radius: 20px;
-    padding: 3px 10px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    display: inline-block;
-}
-.badge-blue {
-    background: rgba(59,130,246,0.12);
-    color: #2563eb;
-    border: 1px solid rgba(59,130,246,0.3);
-    border-radius: 20px;
-    padding: 3px 10px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    display: inline-block;
-}
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: var(--nutrien-green-light);
+        color: var(--nutrien-green-dark);
+    }
 
-/* ── INFO / ALERT BOXES ── */
-.info-box {
-    background: rgba(0,163,79,0.07);
-    border-left: 4px solid #00A34F;
-    border-radius: 0 8px 8px 0;
-    padding: 1rem 1.2rem;
-    margin: 0.8rem 0;
-    font-size: 0.88rem;
-    color: #1f2937;
-    line-height: 1.6;
-}
-.alert-box {
-    background: rgba(245,158,11,0.08);
-    border-left: 4px solid #f59e0b;
-    border-radius: 0 8px 8px 0;
-    padding: 1rem 1.2rem;
-    margin: 0.8rem 0;
-    font-size: 0.88rem;
-    color: #1f2937;
-}
+    .stTabs [aria-selected="true"] {
+        background-color: var(--nutrien-green-dark) !important;
+        color: var(--nutrien-white) !important;
+        border-color: var(--nutrien-green-dark) !important;
+    }
 
-/* ── SOURCE TAGS ── */
-.source-tag {
-    background: #f3f4f6;
-    color: #6b7280;
-    border-radius: 4px;
-    padding: 2px 8px;
-    font-size: 0.72rem;
-    font-family: monospace;
-    display: inline-block;
-    margin: 2px;
-}
+    /* ─── CARDS ─── */
+    .ap-card {
+        background-color: var(--nutrien-white);
+        border: 1px solid var(--nutrien-gray-200);
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+    }
 
-/* ── SIDEBAR DARK ── */
-[data-testid="stSidebar"] {
-    background-color: #1D1D1D !important;
-}
-[data-testid="stSidebar"] * {
-    color: #F0F0F0 !important;
-}
-[data-testid="stSidebar"] .stSelectbox label,
-[data-testid="stSidebar"] .stRadio label,
-[data-testid="stSidebar"] .stDateInput label,
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3 {
-    color: #F0F0F0 !important;
-}
-[data-testid="stSidebar"] .stSelectbox > div > div {
-    background: #2d2d2d !important;
-    border-color: #444 !important;
-    color: #F0F0F0 !important;
-}
-[data-testid="stSidebar"] hr {
-    border-color: #444 !important;
-}
+    /* ─── KPI METRICS ─── */
+    .kpi-box {
+        background: var(--nutrien-white);
+        border: 1px solid var(--nutrien-gray-200);
+        border-radius: 8px;
+        padding: 1.2rem;
+        text-align: center;
+        height: 100%;
+    }
+    .kpi-value {
+        font-family: 'Inter', sans-serif;
+        font-size: 2.2rem;
+        font-weight: 800;
+        color: var(--nutrien-green-dark);
+        line-height: 1.1;
+    }
+    .kpi-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--nutrien-gray-600);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-top: 0.4rem;
+    }
+    .kpi-sub {
+        font-size: 0.8rem;
+        color: var(--nutrien-gray-600);
+        margin-top: 0.2rem;
+    }
 
-/* ── NUTRIEN GREEN BUTTONS ── */
-.stButton > button {
-    background: linear-gradient(135deg, #00A34F, #007A3D);
-    color: #fff;
-    border: none;
-    border-radius: 8px;
-    font-weight: 600;
-    padding: 0.45rem 1.2rem;
-    font-size: 0.85rem;
-    transition: all 0.2s ease;
-}
-.stButton > button:hover {
-    background: linear-gradient(135deg, #007A3D, #005C2E);
-    box-shadow: 0 4px 12px rgba(0,163,79,0.3);
-}
+    /* ─── SECTION TITLES ─── */
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Inter', sans-serif;
+        font-weight: 700;
+        color: var(--nutrien-gray-900);
+    }
 
-/* ── DOWNLOAD BUTTON ── */
-.stDownloadButton > button {
-    background: #fff;
-    color: #00A34F;
-    border: 2px solid #00A34F;
-    border-radius: 8px;
-    font-weight: 600;
-}
-.stDownloadButton > button:hover {
-    background: #00A34F;
-    color: #fff;
-}
+    .section-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--nutrien-gray-900);
+        margin-bottom: 0.5rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--nutrien-green-dark);
+        display: inline-block;
+    }
 
-/* ── FOOTER ── */
-.ap-footer {
-    margin-top: 3rem;
-    padding: 1.5rem 2rem;
-    background: #f9fafb;
-    border-top: 1px solid #e5e7eb;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    color: #9ca3af;
-    text-align: center;
-    line-height: 1.8;
-}
+    .section-subtitle {
+        font-size: 0.9rem;
+        font-weight: 400;
+        color: var(--nutrien-gray-600);
+        margin-bottom: 1.5rem;
+    }
+
+    /* ─── SIDEBAR (to be removed) ─── */
+    [data-testid="stSidebar"] {
+        background-color: var(--nutrien-white) !important;
+        border-right: 1px solid var(--nutrien-gray-200);
+    }
+    [data-testid="stSidebar"] * {
+        color: var(--nutrien-gray-900) !important;
+    }
+    [data-testid="stSidebar"] .stSelectbox > div > div,
+    [data-testid="stSidebar"] .stMultiSelect > div > div {
+        background-color: var(--nutrien-gray-100) !important;
+        border-color: var(--nutrien-gray-200) !important;
+    }
+    [data-testid="stSidebar"] hr {
+        border-color: var(--nutrien-gray-200) !important;
+    }
+
+    /* ─── BUTTONS ─── */
+    .stButton > button {
+        background-color: var(--nutrien-green-mid);
+        color: var(--nutrien-white);
+        border: 2px solid var(--nutrien-green-mid);
+        border-radius: 8px;
+        font-weight: 700;
+        padding: 0.5rem 1.5rem;
+        font-size: 0.9rem;
+        transition: all 0.2s ease;
+    }
+    .stButton > button:hover {
+        background-color: var(--nutrien-green-dark);
+        border-color: var(--nutrien-green-dark);
+    }
+    .stDownloadButton > button {
+        background-color: var(--nutrien-white);
+        color: var(--nutrien-green-dark);
+        border: 2px solid var(--nutrien-green-dark);
+        border-radius: 8px;
+        font-weight: 700;
+    }
+    .stDownloadButton > button:hover {
+        background-color: var(--nutrien-green-dark);
+        color: var(--nutrien-white);
+    }
+
+    /* INFO / ALERT BOXES */
+    .info-box {
+        background-color: #E8F5EC;
+        color: #1A1A1A;
+        border-left: 4px solid var(--nutrien-green-mid);
+        border-radius: 0 8px 8px 0;
+        padding: 1rem 1.2rem;
+        margin: 0.8rem 0;
+        font-size: 0.9rem;
+        line-height: 1.6;
+    }
+
+    .alert-box {
+        background: #FFFBEB;
+        border-left: 4px solid var(--nutrien-amber);
+        color: #1A1A1A;
+        border-radius: 0 8px 8px 0;
+        padding: 1rem 1.2rem;
+        margin: 0.8rem 0;
+        font-size: 0.9rem;
+    }
+
+    /* FOOTER */
+    footer {
+        text-align: center;
+        padding: 2rem 1rem 1rem 1rem;
+        font-size: 0.8rem;
+        color: var(--nutrien-gray-600);
+    }
+
 </style>
 """, unsafe_allow_html=True)
-
 
 def create_pdf(text):
     pdf = FPDF()
@@ -280,6 +244,7 @@ def create_pdf(text):
     buffer = BytesIO()
     pdf.output(buffer)
     return buffer.getvalue()
+
 
 # ══════════════════════════════════════════════════════════
 # INICIALIZACIÓN DEL ENGINE
@@ -452,22 +417,43 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════
 # HEADER
 # ══════════════════════════════════════════════════════════
-today_str = datetime.date.today().strftime("%d/%m/%Y")
-st.markdown(f"""
-<div class="ap-header">
-    <div style="font-size:2.5rem;">🌱</div>
-    <div>
-        <h1>AgriPulse Argentina</h1>
-        <p>Plataforma de Inteligencia Comercial · Nutrien Ag Solutions Argentina</p>
+def app_header():
+    today_str = "Datos al " + datetime.date.today().strftime("%d/%m/%Y")
+    st.markdown(f"""
+    <div style="
+        background-color: var(--nutrien-white);
+        padding: 1rem 1.5rem;
+        border-bottom: 2px solid var(--nutrien-green-dark);
+        margin-bottom: 1.5rem;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 99;
+        height: 80px;
+    ">
+        <div style="display: flex; align-items: center; justify-content: space-between; max-width: 1200px; margin: auto;">
+            <div>
+                <h1 style="font-weight: 700; font-size: 1.5rem; color: var(--nutrien-green-dark); margin: 0; padding:0;">NUTRIEN AG</h1>
+                <p style="font-weight: 400; font-size: 0.9rem; color: var(--nutrien-gray-600); margin: 0; padding:0;">AgriPulse — Campaign Intelligence Platform</p>
+            </div>
+            <div style="
+                background-color: var(--nutrien-green-light);
+                color: var(--nutrien-green-dark);
+                font-weight: 600;
+                font-size: 0.8rem;
+                padding: 0.4rem 0.8rem;
+                border-radius: 8px;
+                border: 1px solid var(--nutrien-green-mid);
+            ">
+                {today_str}
+            </div>
+        </div>
     </div>
-    <div style="margin-left:auto; text-align:right;">
-        <span class="badge-green">Campaña 2024/25</span><br>
-        <span style="font-size:0.78rem; opacity:0.8; margin-top:4px; display:block;">
-            {today_str} · {cultivo_global} · {provincia_global}
-        </span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+    <div style="height: 110px;"></div>
+    """, unsafe_allow_html=True)
+
+app_header()
 
 
 # ══════════════════════════════════════════════════════════
@@ -891,16 +877,16 @@ with tab2:
 
             st.markdown("")
 
-            px.set_mapbox_access_token(st.secrets["MAPBOX_TOKEN"])
-            fig_mkt = px.scatter_mapbox(
+            fig_mkt = px.scatter_map(
                 map_filt,
                 lat='lat', lon='lon',
                 size='demanda_total_tn',
                 color='valor_total_musd',
                 color_continuous_scale='Greens',
-                size_max=15,
+                size_max=35,
                 zoom=4,
                 center={'lat': -34.0, 'lon': -63.0},
+                map_style='carto-positron',
                 hover_name='departamento',
                 hover_data={
                     'provincia': True,
@@ -918,36 +904,38 @@ with tab2:
                 title=f"Potencial de Mercado — {cultivo_mkt} · {fert_mkt}",
             )
 
+            _data_dir = Path(__file__).parent.parent / 'data'
+
             if show_nutrien:
-                nutrien_locs = pd.read_csv('data/nutrien_locations.csv')
-                fig_mkt.add_trace(go.Scattermapbox(
+                nutrien_locs = pd.read_csv(_data_dir / 'nutrien_locations.csv')
+                fig_mkt.add_trace(go.Scattermap(
                     lat=nutrien_locs['lat'],
                     lon=nutrien_locs['lon'],
                     mode='markers',
-                    marker=go.scattermapbox.Marker(
-                        size=10,
-                        color='green',
-                        opacity=0.8
+                    marker=go.scattermap.Marker(
+                        size=12,
+                        color='#00A34F',
+                        opacity=0.9,
                     ),
+                    hovertext=nutrien_locs['localidad'],
                     hoverinfo='text',
-                    text=nutrien_locs['localidad'],
-                    name='Nutrien'
+                    name='Nutrien',
                 ))
 
             if show_competitors:
-                competitor_locs = pd.read_csv('data/competitor_locations.csv')
-                fig_mkt.add_trace(go.Scattermapbox(
+                competitor_locs = pd.read_csv(_data_dir / 'competitor_locations.csv')
+                fig_mkt.add_trace(go.Scattermap(
                     lat=competitor_locs['lat'],
                     lon=competitor_locs['lon'],
                     mode='markers',
-                    marker=go.scattermapbox.Marker(
-                        size=10,
-                        color='red',
-                        opacity=0.8
+                    marker=go.scattermap.Marker(
+                        size=12,
+                        color='#dc2626',
+                        opacity=0.9,
                     ),
+                    hovertext=competitor_locs['localidad'],
                     hoverinfo='text',
-                    text=competitor_locs['localidad'],
-                    name='Competencia'
+                    name='Competencia',
                 ))
 
             fig_mkt.update_layout(
