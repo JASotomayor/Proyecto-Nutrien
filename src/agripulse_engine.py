@@ -30,45 +30,11 @@ class AgriPulseEngine:
     }
 
     # ─────────────────────────────────────────────
-    # DATOS SIIA/MAGyP 2023/24 - SUPERFICIE SEMBRADA (ha)
+    # URL para datos de Estimaciones Agrícolas
     # ─────────────────────────────────────────────
-    SIIA_DATA = [
-        {'provincia': 'Buenos Aires', 'departamento': 'Pergamino',       'lat': -33.89, 'lon': -60.57, 'cultivo': 'Maíz',  'area_ha': 178000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Pergamino',       'lat': -33.89, 'lon': -60.57, 'cultivo': 'Soja',  'area_ha': 125000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Junín',           'lat': -34.59, 'lon': -60.95, 'cultivo': 'Maíz',  'area_ha': 112000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Junín',           'lat': -34.59, 'lon': -60.95, 'cultivo': 'Soja',  'area_ha': 98000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Trenque Lauquen', 'lat': -35.97, 'lon': -62.73, 'cultivo': 'Soja',  'area_ha': 248000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Trenque Lauquen', 'lat': -35.97, 'lon': -62.73, 'cultivo': 'Trigo', 'area_ha': 152000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Nueve de Julio',  'lat': -35.45, 'lon': -60.88, 'cultivo': 'Soja',  'area_ha': 195000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Lincoln',         'lat': -34.87, 'lon': -61.53, 'cultivo': 'Soja',  'area_ha': 210000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Bolívar',         'lat': -36.24, 'lon': -61.11, 'cultivo': 'Soja',  'area_ha': 180000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Pehuajó',         'lat': -35.81, 'lon': -61.91, 'cultivo': 'Soja',  'area_ha': 167000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Azul',            'lat': -36.77, 'lon': -59.86, 'cultivo': 'Trigo', 'area_ha': 98000},
-        {'provincia': 'Buenos Aires', 'departamento': 'Tandil',          'lat': -37.32, 'lon': -59.13, 'cultivo': 'Trigo', 'area_ha': 115000},
-        {'provincia': 'Córdoba',      'departamento': 'Marcos Juárez',   'lat': -32.70, 'lon': -62.10, 'cultivo': 'Soja',  'area_ha': 348000},
-        {'provincia': 'Córdoba',      'departamento': 'Marcos Juárez',   'lat': -32.70, 'lon': -62.10, 'cultivo': 'Maíz',  'area_ha': 125000},
-        {'provincia': 'Córdoba',      'departamento': 'Unión',           'lat': -32.95, 'lon': -63.52, 'cultivo': 'Soja',  'area_ha': 318000},
-        {'provincia': 'Córdoba',      'departamento': 'Unión',           'lat': -32.95, 'lon': -63.52, 'cultivo': 'Maíz',  'area_ha': 98000},
-        {'provincia': 'Córdoba',      'departamento': 'General Roca',    'lat': -33.27, 'lon': -63.46, 'cultivo': 'Soja',  'area_ha': 278000},
-        {'provincia': 'Córdoba',      'departamento': 'Río Cuarto',      'lat': -33.13, 'lon': -64.35, 'cultivo': 'Maíz',  'area_ha': 142000},
-        {'provincia': 'Córdoba',      'departamento': 'San Justo',       'lat': -31.38, 'lon': -63.00, 'cultivo': 'Soja',  'area_ha': 256000},
-        {'provincia': 'Córdoba',      'departamento': 'Juárez Celman',   'lat': -33.01, 'lon': -63.55, 'cultivo': 'Maíz',  'area_ha': 88000},
-        {'provincia': 'Santa Fe',     'departamento': 'General Obligado','lat': -28.46, 'lon': -59.67, 'cultivo': 'Soja',  'area_ha': 275000},
-        {'provincia': 'Santa Fe',     'departamento': 'Castellanos',     'lat': -30.92, 'lon': -61.83, 'cultivo': 'Soja',  'area_ha': 198000},
-        {'provincia': 'Santa Fe',     'departamento': 'Castellanos',     'lat': -30.92, 'lon': -61.83, 'cultivo': 'Trigo', 'area_ha': 115000},
-        {'provincia': 'Santa Fe',     'departamento': 'San Martín',      'lat': -32.72, 'lon': -61.27, 'cultivo': 'Soja',  'area_ha': 232000},
-        {'provincia': 'Santa Fe',     'departamento': 'San Martín',      'lat': -32.72, 'lon': -61.27, 'cultivo': 'Maíz',  'area_ha': 88000},
-        {'provincia': 'Santa Fe',     'departamento': 'La Capital',      'lat': -31.63, 'lon': -60.70, 'cultivo': 'Soja',  'area_ha': 142000},
-        {'provincia': 'Entre Ríos',   'departamento': 'Paraná',          'lat': -31.73, 'lon': -60.52, 'cultivo': 'Soja',  'area_ha': 148000},
-        {'provincia': 'Entre Ríos',   'departamento': 'Gualeguaychú',    'lat': -33.01, 'lon': -58.52, 'cultivo': 'Soja',  'area_ha': 132000},
-        {'provincia': 'Entre Ríos',   'departamento': 'Uruguay',         'lat': -32.48, 'lon': -58.23, 'cultivo': 'Soja',  'area_ha': 118000},
-        {'provincia': 'La Pampa',     'departamento': 'Realicó',         'lat': -35.03, 'lon': -64.25, 'cultivo': 'Soja',  'area_ha': 88000},
-        {'provincia': 'La Pampa',     'departamento': 'Realicó',         'lat': -35.03, 'lon': -64.25, 'cultivo': 'Maíz',  'area_ha': 45000},
-        {'provincia': 'La Pampa',     'departamento': 'Maracó',          'lat': -35.58, 'lon': -63.75, 'cultivo': 'Trigo', 'area_ha': 72000},
-        {'provincia': 'Salta',        'departamento': 'Anta',            'lat': -24.84, 'lon': -63.28, 'cultivo': 'Soja',  'area_ha': 325000},
-        {'provincia': 'Salta',        'departamento': 'Rivadavia',       'lat': -23.20, 'lon': -62.89, 'cultivo': 'Soja',  'area_ha': 198000},
-        {'provincia': 'Santiago del Estero', 'departamento': 'Ojo de Agua', 'lat': -29.51, 'lon': -63.69, 'cultivo': 'Soja', 'area_ha': 142000},
-    ]
+    SIIA_URL = "https://datos.magyp.gob.ar/dataset/9e1e77ba-267e-4eaa-a59f-3296e86b5f36/resource/95d066e6-8a0f-4a80-b59d-6f28f88eacd5/download/estimaciones-agricolas-2026-03.csv"
+
+
 
     # ─────────────────────────────────────────────
     # PRECIOS FERTILIZANTES (USD/tn CIF Argentina)
@@ -82,11 +48,12 @@ class AgriPulseEngine:
         'Superfosfato Triple':  582,
     }
 
+    # Precios de granos (USD/tn) - Actualizado 2026-03-13 desde https://www.ggsa.com.ar
     GRAIN_PRICES = {
-        'Soja':    345,
-        'Maíz':    188,
-        'Trigo':   228,
-        'Girasol': 395,
+        'Soja':    435.97,
+        'Maíz':    170.47,
+        'Trigo':   215.60,
+        'Girasol': 395, # sin cambios
     }
 
     ZONES = {
@@ -178,39 +145,24 @@ class AgriPulseEngine:
         },
     }
 
-    # ─────────────────────────────────────────────
-    # Carga lazy de CSVs históricos y geodatos
-    # ─────────────────────────────────────────────
-    _sup_df  = None
-    _prod_df = None
-    _rend_df = None
-    _geo_df  = None
-    _siia_market_df = None  # cache del dataset para mercado
+    _siia_df = None
 
-    def _load_sup(self):
-        if self._sup_df is None:
-            p = _DATA_DIR / 'siia_superficie.csv'
-            self.__class__._sup_df = pd.read_csv(p)
-        return self._sup_df
-
-    def _load_prod(self):
-        if self._prod_df is None:
-            p = _DATA_DIR / 'siia_produccion.csv'
-            self.__class__._prod_df = pd.read_csv(p)
-        return self._prod_df
-
-    def _load_rend(self):
-        if self._rend_df is None:
-            p = _DATA_DIR / 'siia_rendimiento.csv'
-            self.__class__._rend_df = pd.read_csv(p)
-        return self._rend_df
-
-    def _load_geo(self):
-        """Carga centroides departamentales reales (API datos.gob.ar)."""
-        if self._geo_df is None:
-            p = _DATA_DIR / 'departamentos_agricolas.csv'
-            self.__class__._geo_df = pd.read_csv(p)
-        return self._geo_df
+    def _load_siia_data(self):
+        """
+        Carga y cachea los datos de estimaciones agrícolas desde la URL oficial.
+        """
+        if self._siia_df is None:
+            try:
+                self.__class__._siia_df = pd.read_csv(self.SIIA_URL)
+            except Exception as e:
+                print(f"Error descargando datos de SIIA: {e}")
+                # Fallback to local file if download fails
+                p = _DATA_DIR / 'siia_superficie.csv'
+                if p.exists():
+                    self.__class__._siia_df = pd.read_csv(p)
+                else:
+                    return pd.DataFrame() # Return empty if no local file
+        return self._siia_df
 
     def get_estado_fenologico_actual(self, cultivo='Maíz'):
         """
@@ -297,7 +249,7 @@ class AgriPulseEngine:
         Construye el dataset de mercado desde los CSVs históricos (año 2024).
         Reemplaza el SIIA_DATA hardcodeado con datos reales para 300+ departamentos.
         """
-        df_sup = self._load_sup()
+        df_sup = self._load_siia_data()
         # Usar datos de 2024 (última campaña disponible)
         df = df_sup[df_sup['año'] == 2024].copy()
 
@@ -598,7 +550,7 @@ class AgriPulseEngine:
         Categorías: EXPANSIÓN / MADUREZ / CONTRACCIÓN / EMERGENTE
         Incluye proyección polinómica a 2 campañas con R².
         """
-        df = self._load_sup()
+        df = self._load_siia_data()
         df = df[df['cultivo'] == cultivo].copy()
 
         anio_fin = 2024
@@ -698,21 +650,20 @@ class AgriPulseEngine:
         Compara el rendimiento real promedio vs. el potencial INTA por zona.
         Calcula demanda adicional de fertilizante si se cierra la brecha.
         """
-        df_rend = self._load_rend()
-        df_sup  = self._load_sup()
+        df_siia = self._load_siia_data()
 
         anio_fin = 2024
         anio_ini = anio_fin - anios_prom + 1
 
         rend_real = (
-            df_rend[(df_rend['cultivo'] == cultivo) & (df_rend['año'].between(anio_ini, anio_fin))]
+            df_siia[(df_siia['cultivo'] == cultivo) & (df_siia['año'].between(anio_ini, anio_fin))]
             .groupby(['provincia', 'departamento', 'lat', 'lon', 'zona_agroclimatica'])['rendimiento_tn_ha']
             .mean().reset_index()
             .rename(columns={'rendimiento_tn_ha': 'rend_real_avg'})
         )
 
         sup_act = (
-            df_sup[(df_sup['cultivo'] == cultivo) & (df_sup['año'] == anio_fin)]
+            df_siia[(df_siia['cultivo'] == cultivo) & (df_siia['año'] == anio_fin)]
             [['provincia', 'departamento', 'sup_sembrada_ha']]
         )
 
@@ -767,7 +718,8 @@ class AgriPulseEngine:
             'Superfosfato Triple': self.FERTILIZER_PRICES['Superfosfato Triple'],
         }
 
-        df = pd.DataFrame(self.SIIA_DATA)
+        df = self._load_siia_data()
+        df = df[df['año'] == 2024]  # Use latest year for simulation base
         factor_area = 1 + var_area_pct / 100
         factor_adopt = adopcion_pct / 100
 
@@ -1000,8 +952,8 @@ class AgriPulseEngine:
             score_clima_base = 60
 
         # ── Componente 6: Tendencia producción ──────────────
-        df_rend = self._load_rend()
-        rend_sub = df_rend[(df_rend['cultivo'] == cultivo) & (df_rend['año'] >= 2019)]
+        df_siia = self._load_siia_data()
+        rend_sub = df_siia[(df_siia['cultivo'] == cultivo) & (df_siia['año'] >= 2019)]
         tend_df = rend_sub.groupby(['provincia', 'departamento'])['rendimiento_tn_ha'].apply(
             lambda s: np.polyfit(range(len(s)), s, 1)[0] if len(s) >= 3 else 0
         ).reset_index()

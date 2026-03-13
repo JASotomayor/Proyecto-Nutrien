@@ -11,6 +11,8 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from fpdf import FPDF
+from io import BytesIO
 from agripulse_engine import AgriPulseEngine
 
 # ══════════════════════════════════════════════════════════
@@ -269,6 +271,16 @@ html, body, [class*="css"] {
 """, unsafe_allow_html=True)
 
 
+def create_pdf(text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt="Business Case Argumentator", ln=1, align="C")
+    pdf.multi_cell(0, 10, txt=text)
+    buffer = BytesIO()
+    pdf.output(buffer)
+    return buffer.getvalue()
+
 # ══════════════════════════════════════════════════════════
 # INICIALIZACIÓN DEL ENGINE
 # ══════════════════════════════════════════════════════════
@@ -354,7 +366,7 @@ with st.sidebar:
         help="Filtra todos los módulos por este cultivo"
     )
 
-    provincias_disponibles = sorted(engine._load_sup()['provincia'].unique().tolist())
+    provincias_disponibles = sorted(engine._load_siia_data()['provincia'].unique().tolist())
     provincia_global = st.selectbox(
         "Provincia",
         options=["Todas"] + provincias_disponibles,
@@ -367,6 +379,12 @@ with st.sidebar:
         value=datetime.date(2025, 3, 13),
         help="Referencia temporal para cálculo fenológico"
     )
+
+    st.divider()
+
+    st.markdown("### Capas del Mapa")
+    show_nutrien = st.checkbox("Mostrar sucursales Nutrien", value=True)
+    show_competitors = st.checkbox("Mostrar competidores", value=False)
 
     st.divider()
 
@@ -814,7 +832,7 @@ with tab2:
                                        index=default_mkt_idx,
                                        key="mkt_cultivo")
         with fa_col2:
-            _sup_df = engine._load_sup()
+            _sup_df = engine._load_siia_data()
             prov_opts_mkt = ["Todas"] + sorted(_sup_df['provincia'].unique().tolist())
             prov_mkt_idx = prov_opts_mkt.index(provincia_global) if provincia_global in prov_opts_mkt else 0
             prov_mkt = st.selectbox("Provincia", prov_opts_mkt,
@@ -873,17 +891,16 @@ with tab2:
 
             st.markdown("")
 
-            # Mapa
-            fig_mkt = px.scatter_map(
+            px.set_mapbox_access_token(st.secrets["MAPBOX_TOKEN"])
+            fig_mkt = px.scatter_mapbox(
                 map_filt,
                 lat='lat', lon='lon',
                 size='demanda_total_tn',
                 color='valor_total_musd',
                 color_continuous_scale='Greens',
-                size_max=35,
+                size_max=15,
                 zoom=4,
                 center={'lat': -34.0, 'lon': -63.0},
-                map_style='carto-positron',
                 hover_name='departamento',
                 hover_data={
                     'provincia': True,
@@ -900,6 +917,39 @@ with tab2:
                 },
                 title=f"Potencial de Mercado — {cultivo_mkt} · {fert_mkt}",
             )
+
+            if show_nutrien:
+                nutrien_locs = pd.read_csv('data/nutrien_locations.csv')
+                fig_mkt.add_trace(go.Scattermapbox(
+                    lat=nutrien_locs['lat'],
+                    lon=nutrien_locs['lon'],
+                    mode='markers',
+                    marker=go.scattermapbox.Marker(
+                        size=10,
+                        color='green',
+                        opacity=0.8
+                    ),
+                    hoverinfo='text',
+                    text=nutrien_locs['localidad'],
+                    name='Nutrien'
+                ))
+
+            if show_competitors:
+                competitor_locs = pd.read_csv('data/competitor_locations.csv')
+                fig_mkt.add_trace(go.Scattermapbox(
+                    lat=competitor_locs['lat'],
+                    lon=competitor_locs['lon'],
+                    mode='markers',
+                    marker=go.scattermapbox.Marker(
+                        size=10,
+                        color='red',
+                        opacity=0.8
+                    ),
+                    hoverinfo='text',
+                    text=competitor_locs['localidad'],
+                    name='Competencia'
+                ))
+
             fig_mkt.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
@@ -1358,16 +1408,25 @@ with tab3:
     st.plotly_chart(fig_heat, width='stretch')
 
     # Argumento comercial
+    argumento_text = f"""El ratio {grain_sel}/{fert_sel} actual es {ratio_actual_val:.2f}, en el percentil {ratio_pct_ratio}° de su historia desde 2020.
+    Cada bolsa de 50 kg de {fert_sel} equivale hoy a {kg_bolsa:.0f} kg de {grain_sel} (USD {precio_fert_base:.0f}/tn fert vs USD {precio_grano_base:.0f}/tn grano).
+
+    Recomendación: {recom}"""
+
     st.markdown(f"""
     <div class="info-box">
         <strong>Argumento listo para usar:</strong><br>
-        El ratio <strong>{grain_sel}/{fert_sel}</strong> actual es <strong>{ratio_actual_val:.2f}</strong>,
-        en el percentil <strong>{ratio_pct_ratio}°</strong> de su historia desde 2020.
-        Cada bolsa de 50 kg de {fert_sel} equivale hoy a <strong>{kg_bolsa:.0f} kg de {grain_sel}</strong>
-        (USD {precio_fert_base:.0f}/tn fert vs USD {precio_grano_base:.0f}/tn grano).<br><br>
-        <strong>Recomendación:</strong> {recom}
+        {argumento_text.replace(chr(10), "<br>")}
     </div>
     """, unsafe_allow_html=True)
+
+    pdf_buffer = create_pdf(argumento_text)
+    st.download_button(
+        label="📥 Exportar a PDF",
+        data=pdf_buffer,
+        file_name=f"argumento_{grain_sel.lower()}_{fert_sel.lower()}.pdf",
+        mime="application/pdf",
+    )
 
 
 # ══════════════════════════════════════════════════════════
