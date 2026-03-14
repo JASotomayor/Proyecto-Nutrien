@@ -518,6 +518,16 @@ def load_priority_score(cultivo):
 def load_climate_corr(cultivo):
     return engine.get_climate_production_correlation(cultivo=cultivo)
 
+@st.cache_data(ttl=43200)
+def load_climate_history(lat, lon, start_year, end_year):
+    return engine.get_climate_history(lat, lon, start_year, end_year)
+
+@st.cache_data(ttl=86400)
+def load_geo_tables():
+    _p = pd.read_csv(_DATA_DIR / "provincias_centroides.csv")
+    _d = pd.read_csv(_DATA_DIR / "departamentos_agricolas.csv")
+    return _p, _d
+
 @st.cache_data(ttl=3600)
 def load_price_history(grain, fert):
     return engine.get_price_history(grain=grain, fertilizer=fert)
@@ -1486,328 +1496,765 @@ elif _page == "Evolución y Proyección":
 
 
 # ══════════════════════════════════════════════════════════
-# MÓDULO 4 — CLIMA
+# MÓDULO 4 — ANÁLISIS CLIMÁTICO
 # ══════════════════════════════════════════════════════════
 elif _page == "Clima":
 
     render_page_header(
-        "Clima & Producción",
-        "Dashboard climático dinámico · NASA POWER + Correlación ENSO–Rendimiento",
-        "Explorá distintas zonas y variables climáticas. Los gráficos se actualizan en tiempo real."
+        "Análisis Climático",
+        "Laboratorio histórico multi-decadal · NASA POWER · Hasta 40+ años de datos",
+        "Exploración guiada por tipo de análisis: tendencias, estacionalidad, anomalías, extremos y riesgo climático.",
     )
 
-    # ── PANEL DE CONTROLES ──
+    # ─── CONSTANTES ───────────────────────────────────────────
+    _CY = datetime.date.today().year
+    _VAR_MAP = {
+        "Temperatura media":  {"col": "temp_mean", "label": "Temp. Media (°C)",     "unit": "°C",       "color": "#ef4444", "agg": "Media"},
+        "Temperatura máxima": {"col": "temp_max",  "label": "Temp. Máxima (°C)",    "unit": "°C",       "color": "#f97316", "agg": "Máximo"},
+        "Temperatura mínima": {"col": "temp_min",  "label": "Temp. Mínima (°C)",    "unit": "°C",       "color": "#3b82f6", "agg": "Mínimo"},
+        "Precipitación":      {"col": "precip",    "label": "Precipitación (mm)",    "unit": "mm",       "color": "#2563eb", "agg": "Suma"},
+        "Humedad relativa":   {"col": "humidity",  "label": "Humedad Relativa (%)",  "unit": "%",        "color": "#0891b2", "agg": "Media"},
+        "Radiación solar":    {"col": "radiation", "label": "Radiación (MJ/m²/d)",  "unit": "MJ/m²/d",  "color": "#eab308", "agg": "Media"},
+        "GDD acumulados":     {"col": "gdd",       "label": "GDD (base 10°C)",       "unit": "GDD",      "color": "#006B3F", "agg": "Suma"},
+    }
+    _AGG_FN    = {"Media": "mean", "Suma": "sum", "Máximo": "max", "Mínimo": "min"}
+    _MON_NAMES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+    _CHART_MAP = {
+        "Tendencia histórica":   ["Línea", "Área", "Barras", "Scatter"],
+        "Estacionalidad":        ["Heatmap", "Boxplot", "Barras"],
+        "Anomalías":             ["Barras", "Línea"],
+        "Extremos":              ["Línea", "Scatter"],
+        "Variabilidad":          ["Área", "Línea"],
+        "Acumulados":            ["Línea", "Área"],
+        "Comparación histórica": ["Línea", "Área"],
+        "Riesgo climático":      ["Heatmap", "Barras"],
+    }
+
+    # ─── DATOS GEOGRÁFICOS ────────────────────────────────────
+    _geo_prov, _geo_depto = load_geo_tables()
+    _prov_list   = sorted(_geo_prov["provincia"].unique())
+    _prov_coords = _geo_prov.set_index("provincia")[["lat", "lon"]].to_dict("index")
+
+    # ─── PANEL DE CONTROLES ───────────────────────────────────
     st.markdown('<div class="clima-controls">', unsafe_allow_html=True)
-    cultivo_global = render_cultivo_buttons("t4_cultivo_btn", "Soja")
-    cc1, cc2, cc3, cc4, cc5 = st.columns([2, 2, 2, 1, 1], gap="small")
-    with cc1:
-        zones_list = list(engine.ZONES.keys())
-        zona_sel   = st.selectbox("Zona de monitoreo", options=zones_list, key="clima_zona")
-    with cc2:
-        variable_viz = st.selectbox(
-            "Variable climática",
-            ["Temperatura + Precipitación", "GDD acumulados", "Humedad relativa"],
-            key="clima_var_viz",
+
+    # Fila 1 — Qué analizar
+    f1a, f1b, f1c = st.columns([3, 3, 3], gap="small")
+    with f1a:
+        tipo_analisis = st.selectbox("Tipo de análisis", list(_CHART_MAP.keys()), key="ca_tipo")
+    with f1b:
+        var_clim = st.selectbox("Variable climática", list(_VAR_MAP.keys()), key="ca_var")
+    with f1c:
+        tipo_grafico = st.selectbox("Tipo de gráfico", _CHART_MAP[tipo_analisis], key="ca_chart")
+
+    st.markdown('<div style="border-top:1px solid #e8eaed;margin:0.5rem 0 0.3rem 0;"></div>',
+                unsafe_allow_html=True)
+
+    # Fila 2 — Dónde y cuándo
+    f2a, f2b, f2c, f2d, f2e = st.columns([2, 2, 2, 1.5, 1.5], gap="small")
+    lat_ca = lon_ca = None
+    lugar_label = ""
+    with f2a:
+        nivel_geo = st.selectbox(
+            "Nivel geográfico", ["Zona predefinida", "Provincia", "Departamento"], key="ca_nivel"
         )
-    with cc3:
-        agg_mode = st.selectbox(
-            "Agregación",
-            ["Diario", "7 días (media)", "30 días (media)"],
-            key="clima_agg",
-        )
-    with cc4:
-        _today_dt    = datetime.date.today()
-        _default_from = _today_dt - datetime.timedelta(days=90)
-        date_from = st.date_input("Desde", value=_default_from, key="clima_from")
-    with cc5:
-        date_to = st.date_input("Hasta", value=_today_dt, key="clima_to")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    zona_coords = engine.ZONES[zona_sel]
-    lat_w, lon_w = zona_coords['lat'], zona_coords['lon']
-
-    # ── BANNER FENOLÓGICO ──
-    _cultivo_feno = ("Maíz" if cultivo_global in ("Todos", None)
-                     else (cultivo_global if cultivo_global in engine.ESTADO_ACTUAL_CULTIVOS else "Maíz"))
-    _estado_actual = engine.get_estado_fenologico_actual(_cultivo_feno)
-    _box_class = "alert-box" if not _estado_actual['ventana_activa'] else "info-box"
-    st.markdown(f"""
-    <div class="{_box_class}">
-        <strong>{cultivo_global} — Estadio actual (Marzo 2026):</strong>
-        {_estado_actual['estadio']}<br>
-        {_estado_actual['mensaje']}<br>
-        <strong>Próxima ventana:</strong> {_estado_actual['proxima_ventana']}
-    </div>
-    """, unsafe_allow_html=True)
-
-    with st.spinner(f"Descargando datos climáticos — {zona_sel}..."):
-        wx = load_weather(lat_w, lon_w)
-
-    wx_df       = wx['df']
-    fuente_str  = wx['fuente']
-    fuente_badge = "badge-green" if wx.get('success', False) else "badge-amber"
-
-    # ── FILTRO DE FECHAS ──
-    if not wx_df.empty and 'fecha' in wx_df.columns and date_from and date_to:
-        wx_df = wx_df[
-            (wx_df['fecha'] >= pd.Timestamp(date_from)) &
-            (wx_df['fecha'] <= pd.Timestamp(date_to))
-        ].copy()
-
-    # ── AGREGACIÓN ──
-    if not wx_df.empty and 'fecha' in wx_df.columns:
-        if agg_mode == "7 días (media)":
-            _num_cols = wx_df.select_dtypes(include='number').columns.tolist()
-            wx_df = (wx_df.set_index('fecha')[_num_cols]
-                     .resample('7D').mean().reset_index())
-        elif agg_mode == "30 días (media)":
-            _num_cols = wx_df.select_dtypes(include='number').columns.tolist()
-            wx_df = (wx_df.set_index('fecha')[_num_cols]
-                     .resample('30D').mean().reset_index())
-
-    # ── KPIs CLIMÁTICOS ──
-    wk1, wk2, wk3, wk4, wk5 = st.columns(5)
-    with wk1:
-        st.markdown(f"""<div class="kpi-box">
-            <div class="kpi-value">{wx['temp_avg']}°C</div>
-            <div class="kpi-label">Temp. promedio</div>
-            <div class="kpi-sub">{wx['temp_min']}°C / {wx['temp_max']}°C</div>
-        </div>""", unsafe_allow_html=True)
-    with wk2:
-        st.markdown(f"""<div class="kpi-box">
-            <div class="kpi-value">{wx['precip_total']} mm</div>
-            <div class="kpi-label">Precipitación total</div>
-            <div class="kpi-sub">{wx['dias_lluvia']} días con lluvia</div>
-        </div>""", unsafe_allow_html=True)
-    with wk3:
-        st.markdown(f"""<div class="kpi-box">
-            <div class="kpi-value">{wx['hum_avg']:.0f}%</div>
-            <div class="kpi-label">Humedad relativa</div>
-            <div class="kpi-sub">promedio período</div>
-        </div>""", unsafe_allow_html=True)
-    with wk4:
-        st.markdown(f"""<div class="kpi-box">
-            <div class="kpi-value">{wx['gdd_acum']:.0f}</div>
-            <div class="kpi-label">GDD acumulados</div>
-            <div class="kpi-sub">base 10°C</div>
-        </div>""", unsafe_allow_html=True)
-    with wk5:
-        st.markdown(f"""<div class="kpi-box">
-            <div class="kpi-value" style="font-size:0.72rem;margin-top:0.3rem;">
-                <span class="badge {fuente_badge}">{fuente_str[:28]}</span>
-            </div>
-            <div class="kpi-label">Fuente de datos</div>
-            <div class="kpi-sub">{lat_w:.2f}, {lon_w:.2f}</div>
-        </div>""", unsafe_allow_html=True)
-
-    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-
-    # ── GRÁFICO DINÁMICO SEGÚN VARIABLE ──
-    st.markdown('<div class="ap-card" style="padding:0.75rem 1rem 1rem 1rem;">', unsafe_allow_html=True)
-    section_header(f"Serie climática — {zona_sel} · {agg_mode}")
-
-    fig_wx = go.Figure()
-
-    if variable_viz == "Temperatura + Precipitación":
-        fig_wx.add_trace(go.Scatter(
-            x=wx_df['fecha'], y=wx_df['temp_c'], name='Temperatura (°C)',
-            mode='lines', line=dict(color='#ef4444', width=2), yaxis='y1',
-        ))
-        fig_wx.add_trace(go.Bar(
-            x=wx_df['fecha'], y=wx_df['precip_mm'], name='Precipitación (mm)',
-            marker_color='rgba(59,130,246,0.55)', yaxis='y2',
-        ))
-        fig_wx.update_layout(
-            yaxis=dict(title="Temperatura (°C)", side='left', color='#ef4444'),
-            yaxis2=dict(title="Precipitación (mm)", side='right', overlaying='y', color='#3b82f6'),
-            legend=dict(orientation='h', y=1.1),
-        )
-
-    elif variable_viz == "GDD acumulados":
-        if 'gdd_diario' in wx_df.columns:
-            gdd_cum = wx_df['gdd_diario'].cumsum()
+    with f2b:
+        if nivel_geo == "Zona predefinida":
+            zona_ca = st.selectbox("Zona", list(engine.ZONES.keys()), key="ca_zona2")
+            lat_ca, lon_ca = engine.ZONES[zona_ca]["lat"], engine.ZONES[zona_ca]["lon"]
+            lugar_label = zona_ca
         else:
-            gdd_cum = pd.Series([wx['gdd_acum'] * (i+1) / len(wx_df) for i in range(len(wx_df))])
-        fig_wx.add_trace(go.Scatter(
-            x=wx_df['fecha'], y=gdd_cum, name='GDD acumulados',
-            mode='lines', fill='tozeroy',
-            line=dict(color='#006B3F', width=2),
-            fillcolor='rgba(0,107,63,0.10)',
-        ))
-        fig_wx.update_layout(yaxis=dict(title="GDD acumulados"))
-
-    else:  # Humedad relativa
-        if 'hum_pct' in wx_df.columns:
-            hum_col = wx_df['hum_pct']
-        else:
-            hum_col = pd.Series([wx['hum_avg']] * len(wx_df))
-        fig_wx.add_trace(go.Scatter(
-            x=wx_df['fecha'], y=hum_col, name='Humedad relativa (%)',
-            mode='lines', line=dict(color='#3b82f6', width=2),
-            fill='tozeroy', fillcolor='rgba(59,130,246,0.10)',
-        ))
-        fig_wx.update_layout(yaxis=dict(title="Humedad relativa (%)"))
-
-    fig_wx.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-        template='plotly_white', height=360,
-        title=f"{variable_viz} — {zona_sel} ({agg_mode})",
-        xaxis_title="Fecha",
-        margin=dict(l=0, r=0, t=50, b=0),
-    )
-    st.plotly_chart(fig_wx, width='stretch')
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── SUBTABS: FENOLOGÍA + CORRELACIÓN ENSO ──
-    clim_sub_a, clim_sub_b = st.tabs(["Fenología y GDD", "Correlación Clima–Rendimiento"])
-
-    with clim_sub_a:
-        fcol1, fcol2 = st.columns(2)
-        with fcol1:
-            section_header("Estadio Fenológico")
-            crop_for_pheno = cultivo_global if cultivo_global in ('Maíz', 'Trigo') else ('Maíz' if cultivo_global in ('Soja', 'Girasol', 'Todos') else 'Maíz')
-            stage = engine.get_phenology_stage(crop_for_pheno, wx['gdd_acum'])
-            gdd_targets = {
-                'Maíz': [(0,'VE'),(100,'V3'),(200,'V6 (fertil.)'),(370,'V10'),
-                         (530,'VT'),(670,'R1'),(830,'R2'),(1000,'R4'),(1200,'R6')],
-                'Trigo': [(0,'Emerg.'),(150,'Macollaje (fertil.)'),(350,'Encañazón'),
-                          (500,'Espigazón'),(650,'Antesis'),(900,'Lechoso'),(1200,'Madurez')],
-            }
-            targets = gdd_targets.get(crop_for_pheno, gdd_targets['Maíz'])
-            max_gdd = targets[-1][0]
-            progress_pct = min(100, int(wx['gdd_acum'] / max_gdd * 100))
-            st.progress(progress_pct)
-            st.markdown(f"""
-            <div class="info-box">
-                <strong>Cultivo:</strong> {crop_for_pheno}<br>
-                <strong>GDD acumulados:</strong> {wx['gdd_acum']:.0f} de {max_gdd}<br>
-                <strong>Estadio actual:</strong> {stage}<br>
-                <strong>Avance ciclo:</strong> {progress_pct}%
-            </div>
-            """, unsafe_allow_html=True)
-
-        with fcol2:
-            section_header("Hitos del Ciclo")
-            milestones_df = pd.DataFrame(targets, columns=['GDD', 'Estadio'])
-            milestones_df['Estado'] = milestones_df['GDD'].apply(
-                lambda g: 'Alcanzado' if wx['gdd_acum'] >= g else 'Pendiente'
+            prov_sel = st.selectbox("Provincia", _prov_list, key="ca_prov")
+    with f2c:
+        if nivel_geo == "Departamento":
+            _dep_list = sorted(
+                _geo_depto[_geo_depto["provincia"] == prov_sel]["departamento"].unique()
             )
-            milestones_df['GDD'] = milestones_df['GDD'].apply(lambda x: f"{x:,}")
-            render_styled_table(milestones_df)
-
-    with clim_sub_b:
-        st.markdown('<p class="section-subtitle">Correlación histórica clima–rendimiento · Análisis ENSO 2000–2024</p>', unsafe_allow_html=True)
-
-        _cultivo_corr = "Soja" if cultivo_global == "Todos" else cultivo_global
-        with st.spinner("Cargando correlación clima-producción..."):
-            clim_corr = load_climate_corr(_cultivo_corr)
-
-        corr_df    = clim_corr['df']
-        var_clima  = clim_corr['variable_clima']
-        pearson_r  = clim_corr['pearson_r']
-        pendiente  = clim_corr['pendiente']
-        intercepto = clim_corr['intercepto']
-        enso_actual = clim_corr['enso_actual']
-
-        if corr_df.empty:
-            st.info("Sin datos de correlación para este cultivo.")
-        else:
-            enso_colors = {'La Niña': '#00A34F', 'El Niño': '#f59e0b', 'neutro': '#9ca3af'}
-            fig_corr = go.Figure()
-
-            for enso_type, color in enso_colors.items():
-                subset = corr_df[corr_df['enso'] == enso_type]
-                if subset.empty:
-                    continue
-                fig_corr.add_trace(go.Scatter(
-                    x=subset['variable_clima'], y=subset['rendimiento'],
-                    mode='markers+text', name=enso_type,
-                    text=subset['año'].astype(str), textposition='top center',
-                    textfont=dict(size=8, color=color),
-                    marker=dict(color=color, size=10, line=dict(color='white', width=1)),
-                ))
-
-            x_vals = corr_df['variable_clima'].values
-            x_lin  = np.linspace(x_vals.min(), x_vals.max(), 50)
-            y_lin  = intercepto + pendiente * x_lin
-            fig_corr.add_trace(go.Scatter(
-                x=x_lin, y=y_lin, mode='lines',
-                name=f'Regresión (r={pearson_r:.2f})',
-                line=dict(color='#374151', width=1.5, dash='dash'),
-            ))
-
-            fig_corr.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                template='plotly_white', height=400,
-                title=f"Correlación Clima–Rendimiento — {cultivo_global}",
-                xaxis_title=var_clima, yaxis_title="Rendimiento (tn/ha)",
-                legend=dict(orientation='h', y=-0.15),
-                margin=dict(l=0, r=0, t=40, b=60),
-            )
-            st.plotly_chart(fig_corr, width='stretch')
-
-            abs_r = abs(pearson_r)
-            if abs_r > 0.5:
-                corr_label = "Correlación FUERTE"
-                corr_badge = "badge-green" if pearson_r > 0 else "badge-red"
-            elif abs_r > 0.3:
-                corr_label = "Correlación MODERADA"; corr_badge = "badge-amber"
+            if _dep_list:
+                depto_sel = st.selectbox("Departamento", _dep_list, key="ca_depto")
+                _r = _geo_depto[
+                    (_geo_depto["provincia"] == prov_sel) &
+                    (_geo_depto["departamento"] == depto_sel)
+                ]
+                lat_ca, lon_ca = float(_r["lat"].iloc[0]), float(_r["lon"].iloc[0])
+                lugar_label = f"{depto_sel} · {prov_sel}"
             else:
-                corr_label = "Correlación DÉBIL"; corr_badge = "badge-red"
+                lat_ca, lon_ca, lugar_label = -33.89, -60.57, prov_sel
+        elif nivel_geo == "Provincia":
+            lat_ca  = float(_prov_coords[prov_sel]["lat"])
+            lon_ca  = float(_prov_coords[prov_sel]["lon"])
+            lugar_label = prov_sel
+        if lat_ca is not None:
+            st.markdown(
+                f'<div style="padding:0.28rem 0.55rem;background:#f5f6f7;border-radius:6px;'
+                f'font-size:0.78rem;color:#5F6368;margin-top:1.5rem;">📍 {lat_ca:.2f}°, {lon_ca:.2f}°</div>',
+                unsafe_allow_html=True,
+            )
+    with f2d:
+        yr_ini = st.number_input(
+            "Año inicio", min_value=1984, max_value=_CY - 1, value=_CY - 20, step=1, key="ca_yr_ini"
+        )
+    with f2e:
+        yr_fin = st.number_input(
+            "Año fin", min_value=1984, max_value=_CY - 1, value=_CY - 1, step=1, key="ca_yr_fin"
+        )
 
-            crr_c1, crr_c2 = st.columns([1, 2])
-            with crr_c1:
-                st.markdown(f"""
-                <div class="ap-card" style="text-align:center;">
-                    <div class="kpi-value" style="font-size:2.8rem;">{pearson_r:.2f}</div>
-                    <div class="kpi-label">Pearson r</div>
-                    <div style="margin-top:0.5rem;">
-                        <span class="badge {corr_badge}">{corr_label}</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+    yr_ini, yr_fin = int(min(yr_ini, yr_fin)), int(max(yr_ini, yr_fin))
+    st.markdown('<div style="border-top:1px solid #e8eaed;margin:0.5rem 0 0.3rem 0;"></div>',
+                unsafe_allow_html=True)
 
-            with crr_c2:
-                enso_estado = enso_actual['estado']
-                enso_oni    = enso_actual['indice_oni']
-                enso_prob   = enso_actual['probabilidad']
-                enso_imp    = enso_actual.get(f"implicancia_{cultivo_global.lower()}",
-                                              enso_actual.get('implicancia_soja', ''))
-                enso_badge_cls = ("badge-green" if 'Niña' in enso_estado else
-                                  "badge-amber" if 'Niño' in enso_estado else "badge-blue")
-                st.markdown(f"""
-                <div class="ap-card">
-                    <strong>Estado ENSO Actual</strong><br>
-                    <span class="badge {enso_badge_cls}">{enso_estado}</span>
-                    <span style="margin-left:0.5rem;font-size:0.8rem;color:#6b7280;">ONI: {enso_oni}</span>
-                    <div style="margin-top:0.8rem;font-size:0.85rem;">
-                        <strong>Implicancia para {cultivo_global}:</strong><br>{enso_imp}
-                    </div>
-                    <div style="margin-top:0.6rem;font-size:0.75rem;color:#9aa0a6;">
-                        Neutro {enso_prob['Neutro']}% · El Niño {enso_prob['El Niño']}% · La Niña {enso_prob['La Niña']}%
-                        · {enso_actual['fuente']}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+    # Fila 3 — Cuándo (meses) + agregación
+    f3a, f3b, f3c = st.columns([5, 2, 2], gap="small")
+    with f3a:
+        meses_disp = st.multiselect(
+            "Meses incluidos en el análisis", _MON_NAMES, default=_MON_NAMES, key="ca_meses"
+        )
+    with f3b:
+        granularidad = st.selectbox(
+            "Granularidad", ["Mensual", "Anual", "Campaña agrícola"], key="ca_gran"
+        )
+    with f3c:
+        _vi = _VAR_MAP[var_clim]
+        _agg_opts = ["Media", "Suma", "Máximo", "Mínimo"]
+        agregacion = st.selectbox(
+            "Agregación", _agg_opts, index=_agg_opts.index(_vi["agg"]), key="ca_agg"
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-            st.markdown("---")
-            if 'enso' in corr_df.columns and 'rendimiento' in corr_df.columns:
-                nina_rend   = corr_df[corr_df['enso'] == 'La Niña']['rendimiento'].mean()
-                nino_rend   = corr_df[corr_df['enso'] == 'El Niño']['rendimiento'].mean()
-                neutro_rend = corr_df[corr_df['enso'] == 'neutro']['rendimiento'].mean()
-                if neutro_rend > 0:
-                    nina_delta = (nina_rend - neutro_rend) / neutro_rend * 100
-                    nino_delta = (nino_rend - neutro_rend) / neutro_rend * 100
-                else:
-                    nina_delta = nino_delta = 0
-                st.markdown(f"""
-                <div class="info-box">
-                    <strong>Resumen ENSO — {cultivo_global}</strong><br>
-                    La Niña: <strong>{nina_rend:.2f} tn/ha</strong> ({nina_delta:+.1f}% vs neutro) ·
-                    El Niño: <strong>{nino_rend:.2f} tn/ha</strong> ({nino_delta:+.1f}% vs neutro) ·
-                    Neutro: <strong>{neutro_rend:.2f} tn/ha</strong>
-                </div>
-                """, unsafe_allow_html=True)
+    # ─── VALIDACIONES ─────────────────────────────────────────
+    meses_idx = ([_MON_NAMES.index(m) + 1 for m in meses_disp]
+                 if meses_disp else list(range(1, 13)))
+    start_yr, end_yr = yr_ini, yr_fin
+    if lat_ca is None:
+        lat_ca, lon_ca, lugar_label = -33.89, -60.57, "Zona Núcleo (fallback)"
+
+    # ─── CARGA DE DATOS ───────────────────────────────────────
+    with st.spinner(f"Cargando {start_yr}–{end_yr} · {lugar_label}..."):
+        _ch         = load_climate_history(lat_ca, lon_ca, start_yr, end_yr)
+    raw_df_full = _ch["df"]
+    fuente_ch   = _ch["fuente"]
+    ok_ch       = _ch["success"]
+
+    # ─── FILTRO DE MESES ──────────────────────────────────────
+    raw_df = (raw_df_full[raw_df_full["month"].isin(meses_idx)].copy()
+              if set(meses_idx) != set(range(1, 13)) else raw_df_full.copy())
+    if raw_df.empty:
+        st.warning("Sin datos para la selección. Amplía el rango o los meses.")
+        st.stop()
+
+    # ─── COMMON VARS ──────────────────────────────────────────
+    col    = _vi["col"]
+    vcolor = _vi["color"]
+    vlabel = _vi["label"]
+    vunit  = _vi["unit"]
+    agg_fn = _AGG_FN[agregacion]
+
+    _meses_presentes = sorted(raw_df["month"].unique())
+    _mon_labels      = [_MON_NAMES[m - 1] for m in _meses_presentes]
+
+    def _rgba(hx, a=0.15):
+        h = hx.lstrip("#")
+        return f"rgba({int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)},{a})"
+
+    def _trace(x, y, name, color, ct, **kw):
+        if ct == "Barras":
+            return go.Bar(x=x, y=y, name=name, marker_color=color, **kw)
+        if ct == "Scatter":
+            return go.Scatter(x=x, y=y, mode="markers", name=name,
+                              marker=dict(color=color, size=6), **kw)
+        if ct == "Área":
+            return go.Scatter(x=x, y=y, mode="lines", fill="tozeroy", name=name,
+                              line=dict(color=color, width=2),
+                              fillcolor=_rgba(color, 0.20), **kw)
+        return go.Scatter(x=x, y=y, mode="lines", name=name,
+                          line=dict(color=color, width=2), **kw)
+
+    # ─── AGREGACIÓN ───────────────────────────────────────────
+    def _agg_data(df, gran, _col, _fn):
+        if gran == "Mensual":
+            return df[["date", "year", "month", _col]].copy()
+        if gran == "Anual":
+            return (df.groupby("year")[_col].agg(_fn).reset_index()
+                    .assign(date=lambda d: pd.to_datetime(d["year"].astype(str) + "-07-01")))
+        df2 = df.copy()
+        df2["camp_yr"]    = df2.apply(lambda r: r["year"] if r["month"] <= 9 else r["year"] + 1, axis=1)
+        df2["camp_label"] = df2["camp_yr"].apply(lambda y: f"{y-1}/{str(y)[2:]}")
+        return (df2.groupby(["camp_yr", "camp_label"])[_col].agg(_fn).reset_index()
+                .assign(date=lambda d: pd.to_datetime(d["camp_yr"].astype(str) + "-09-01"))
+                .rename(columns={"camp_yr": "year"}))
+
+    agg_df = _agg_data(raw_df, granularidad, col, agg_fn)
+
+    # ─── EJE X CONTEXTUAL ─────────────────────────────────────
+    _single_yr = (start_yr == end_yr)
+    if granularidad == "Mensual" and _single_yr:
+        agg_df["x_label"] = agg_df["month"].apply(lambda m: _MON_NAMES[m - 1])
+        x_col, x_title = "x_label", "Mes"
+    elif granularidad == "Mensual":
+        x_col, x_title = "date", "Fecha"
+    elif granularidad == "Anual":
+        x_col, x_title = "year", "Año"
+    else:
+        x_col, x_title = "camp_label", "Campaña agrícola"
+
+    # ─── KPI CARDS ────────────────────────────────────────────
+    _all_v   = raw_df[col].dropna()
+    _ann_agg = (raw_df.groupby("year")[col].agg(agg_fn)
+                if not raw_df.empty else pd.Series(dtype=float))
+    _mean_v  = float(_all_v.mean())     if len(_all_v) else 0.0
+    _max_v   = float(_all_v.max())      if len(_all_v) else 0.0
+    _min_v   = float(_all_v.min())      if len(_all_v) else 0.0
+    _last_v  = float(_ann_agg.iloc[-1]) if len(_ann_agg) else 0.0
+    _last_pct = ((_last_v - _mean_v) / abs(_mean_v) * 100) if _mean_v else 0.0
+
+    if len(_ann_agg) >= 3:
+        _yr_arr  = np.array(_ann_agg.index, dtype=float)
+        _yv_arr  = _ann_agg.values.astype(float)
+        _ok_m    = ~np.isnan(_yv_arr)
+        _trend_c = float(np.polyfit(_yr_arr[_ok_m], _yv_arr[_ok_m], 1)[0]) if _ok_m.sum() >= 3 else 0.0
+    else:
+        _trend_c = 0.0
+    _trend_dec  = _trend_c * 10
+    _trend_icon = "▲" if _trend_c > 0.005 else ("▽" if _trend_c < -0.005 else "→")
+    _trend_col  = "#ef4444" if _trend_c > 0.005 else ("#3b82f6" if _trend_c < -0.005 else "#6b7280")
+    _meses_txt  = (", ".join(_mon_labels) if len(_mon_labels) < 12 else "todos los meses")
+
+    kc1, kc2, kc3, kc4, kc5 = st.columns(5)
+    with kc1:
+        st.markdown(f"""<div class="kpi-box">
+            <div class="kpi-value">{_mean_v:.1f}<span style="font-size:0.85rem;font-weight:400"> {vunit}</span></div>
+            <div class="kpi-label">Media período</div>
+            <div class="kpi-sub">{start_yr}–{end_yr} · {_meses_txt[:22]}</div>
+        </div>""", unsafe_allow_html=True)
+    with kc2:
+        st.markdown(f"""<div class="kpi-box">
+            <div class="kpi-value">{_max_v:.1f}<span style="font-size:0.85rem;font-weight:400"> {vunit}</span></div>
+            <div class="kpi-label">Máximo mensual</div>
+            <div class="kpi-sub">período analizado</div>
+        </div>""", unsafe_allow_html=True)
+    with kc3:
+        st.markdown(f"""<div class="kpi-box">
+            <div class="kpi-value">{_min_v:.1f}<span style="font-size:0.85rem;font-weight:400"> {vunit}</span></div>
+            <div class="kpi-label">Mínimo mensual</div>
+            <div class="kpi-sub">período analizado</div>
+        </div>""", unsafe_allow_html=True)
+    with kc4:
+        _sign = "+" if _last_pct >= 0 else ""
+        st.markdown(f"""<div class="kpi-box">
+            <div class="kpi-value">{_last_v:.1f}<span style="font-size:0.85rem;font-weight:400"> {vunit}</span></div>
+            <div class="kpi-label">Valor {end_yr} ({agregacion.lower()})</div>
+            <div class="kpi-sub">{_sign}{_last_pct:.1f}% vs media</div>
+        </div>""", unsafe_allow_html=True)
+    with kc5:
+        st.markdown(f"""<div class="kpi-box">
+            <div class="kpi-value" style="font-size:1.3rem;color:{_trend_col};">{_trend_icon} {abs(_trend_dec):.2f}</div>
+            <div class="kpi-label">Tendencia / década</div>
+            <div class="kpi-sub"><span class="badge {'badge-green' if ok_ch else 'badge-amber'}">{fuente_ch[:22]}</span></div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:0.25rem'></div>", unsafe_allow_html=True)
+
+    # ─────────────────────────────────────────────────────────
+    # VISUALIZACIÓN PRINCIPAL
+    # ─────────────────────────────────────────────────────────
+    st.markdown('<div class="ap-card" style="padding:0.75rem 1rem 1rem 1rem;">', unsafe_allow_html=True)
+    section_header(f"{tipo_analisis} · {var_clim} · {lugar_label} · {tipo_grafico}")
+    fig_main = go.Figure()
+
+    # ── A. TENDENCIA HISTÓRICA ────────────────────────────────
+    if tipo_analisis == "Tendencia histórica":
+        _d  = agg_df.copy()
+        _xs = _d[x_col]
+        _ys = _d[col]
+        # P25–P75 band (monthly only, not for bar/scatter)
+        if granularidad == "Mensual" and tipo_grafico not in ("Barras", "Scatter"):
+            _p25m = raw_df.groupby("month")[col].quantile(0.25)
+            _p75m = raw_df.groupby("month")[col].quantile(0.75)
+            _lo   = list(_d["month"].map(_p25m))
+            _hi   = list(_d["month"].map(_p75m))
+            _xl   = list(_xs)
+            fig_main.add_trace(go.Scatter(
+                x=_xl + _xl[::-1], y=_hi + _lo[::-1],
+                fill="toself", fillcolor=_rgba(vcolor, 0.12),
+                line=dict(width=0), name="Rango P25–P75",
+            ))
+        fig_main.add_trace(_trace(_xs, _ys, vlabel, vcolor, tipo_grafico, opacity=0.85))
+        # Moving average (line/area only)
+        _maw = 12 if granularidad == "Mensual" else 5
+        if len(_d) >= _maw and tipo_grafico in ("Línea", "Área"):
+            _ma = _ys.rolling(_maw, center=True, min_periods=max(3, _maw // 2)).mean()
+            fig_main.add_trace(go.Scatter(
+                x=_xs, y=_ma, mode="lines", name=f"MA {_maw}",
+                line=dict(color=vcolor, width=2.5),
+            ))
+        # Linear trend
+        if len(_d) >= 5:
+            _xn = np.arange(len(_d), dtype=float)
+            _yv = _ys.values.astype(float)
+            _ok = ~np.isnan(_yv)
+            if _ok.sum() >= 5:
+                _tr = np.polyval(np.polyfit(_xn[_ok], _yv[_ok], 1), _xn)
+                fig_main.add_trace(go.Scatter(
+                    x=_xs, y=_tr, mode="lines", name="Tendencia lineal",
+                    line=dict(color="#374151", width=1.5, dash="dash"),
+                ))
+        fig_main.update_layout(yaxis_title=vlabel, xaxis_title=x_title,
+                               legend=dict(orientation="h", y=1.08, x=0))
+
+    # ── B. ESTACIONALIDAD ─────────────────────────────────────
+    elif tipo_analisis == "Estacionalidad":
+        if tipo_grafico == "Boxplot":
+            for mi, mn in zip(_meses_presentes, _mon_labels):
+                _mv = raw_df[raw_df["month"] == mi][col].dropna().values
+                fig_main.add_trace(go.Box(
+                    y=_mv, name=mn, marker_color=vcolor, boxmean="sd",
+                    line=dict(color="#374151", width=1), fillcolor=_rgba(vcolor, 0.25),
+                ))
+            fig_main.update_layout(yaxis_title=vlabel, xaxis_title="Mes", showlegend=False)
+        elif tipo_grafico == "Barras":
+            _seas = raw_df.groupby("month")[col].mean().reindex(_meses_presentes)
+            fig_main.add_trace(go.Bar(
+                x=_mon_labels, y=_seas.values,
+                marker_color=vcolor, name=f"Media {agregacion}",
+            ))
+            fig_main.update_layout(yaxis_title=vlabel, xaxis_title="Mes")
+        else:  # Heatmap (default)
+            _pivot = raw_df.pivot_table(values=col, index="year", columns="month", aggfunc=agg_fn)
+            _pivot = _pivot.reindex(columns=_meses_presentes)
+            _pivot.columns = [_MON_NAMES[m - 1] for m in _pivot.columns]
+            _cscale = "Blues" if col in ("precip", "humidity") else "RdYlGn"
+            fig_main = go.Figure(go.Heatmap(
+                z=_pivot.values, x=_pivot.columns.tolist(), y=_pivot.index.tolist(),
+                colorscale=_cscale, colorbar=dict(title=vunit, len=0.8),
+            ))
+            fig_main.update_layout(yaxis_title="Año", xaxis_title="Mes")
+
+    # ── C. ANOMALÍAS ──────────────────────────────────────────
+    elif tipo_analisis == "Anomalías":
+        _clim_m   = raw_df.groupby("month")[col].mean()
+        _df_an    = raw_df.copy()
+        _df_an["anom"] = _df_an[col] - _df_an["month"].map(_clim_m)
+        _ann_an   = _df_an.groupby("year")["anom"].mean().reset_index()
+        if tipo_grafico == "Línea":
+            _poscol = _rgba(vcolor, 0.9)
+            fig_main.add_trace(go.Scatter(
+                x=_ann_an["year"], y=_ann_an["anom"],
+                mode="lines+markers", name="Anomalía anual",
+                line=dict(color=vcolor, width=2),
+                marker=dict(color=[_poscol if v >= 0 else "#3b82f6"
+                                   for v in _ann_an["anom"]], size=6),
+            ))
+        else:  # Barras (default)
+            _barcols = [_rgba(vcolor, 0.9) if v >= 0 else "#3b82f6" for v in _ann_an["anom"]]
+            fig_main.add_trace(go.Bar(x=_ann_an["year"], y=_ann_an["anom"],
+                                      marker_color=_barcols, name="Anomalía anual"))
+        fig_main.add_hline(y=0, line_color="#374151", line_width=1)
+        if len(_ann_an) >= 5:
+            _xn = np.arange(len(_ann_an), dtype=float)
+            _yv = _ann_an["anom"].values
+            _tr = np.polyval(np.polyfit(_xn, _yv, 1), _xn)
+            fig_main.add_trace(go.Scatter(
+                x=_ann_an["year"], y=_tr, mode="lines", name="Tendencia",
+                line=dict(color="#ef4444", width=2, dash="dash"),
+            ))
+        fig_main.update_layout(
+            yaxis_title=f"Anomalía ({vunit})", xaxis_title="Año",
+            legend=dict(orientation="h", y=1.08, x=0),
+        )
+
+    # ── D. EXTREMOS ───────────────────────────────────────────
+    elif tipo_analisis == "Extremos":
+        _d   = agg_df.copy()
+        _xs  = _d[x_col]
+        _ys  = _d[col]
+        _p10 = float(_ys.quantile(0.10))
+        _p90 = float(_ys.quantile(0.90))
+        _mc  = ["#ef4444" if v > _p90 else ("#3b82f6" if v < _p10 else "#9ca3af") for v in _ys]
+        if tipo_grafico == "Scatter":
+            fig_main.add_trace(go.Scatter(x=_xs, y=_ys, mode="markers",
+                                          marker=dict(color=_mc, size=7), showlegend=False))
+        else:  # Línea (default)
+            fig_main.add_trace(go.Scatter(x=_xs, y=_ys, mode="lines",
+                                          line=dict(color="#d1d5db", width=1.2), showlegend=False))
+            fig_main.add_trace(go.Scatter(x=_xs, y=_ys, mode="markers",
+                                          marker=dict(color=_mc, size=5), showlegend=False))
+        fig_main.add_hline(y=_p90, line_color="#ef4444", line_dash="dot", line_width=1,
+                           annotation_text="P90", annotation_position="right")
+        fig_main.add_hline(y=_p10, line_color="#3b82f6", line_dash="dot", line_width=1,
+                           annotation_text="P10", annotation_position="right")
+        fig_main.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                      marker=dict(color="#ef4444", size=8),
+                                      name=f"Extremo alto (>{_p90:.1f} {vunit})"))
+        fig_main.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
+                                      marker=dict(color="#3b82f6", size=8),
+                                      name=f"Extremo bajo (<{_p10:.1f} {vunit})"))
+        fig_main.update_layout(yaxis_title=vlabel, xaxis_title=x_title,
+                               legend=dict(orientation="h", y=1.08, x=0))
+
+    # ── E. VARIABILIDAD ───────────────────────────────────────
+    elif tipo_analisis == "Variabilidad":
+        _am  = raw_df.groupby("year")[col].mean()
+        _as  = raw_df.groupby("year")[col].std().fillna(0)
+        _yrs = list(_am.index)
+        if tipo_grafico == "Línea":
+            fig_main.add_trace(go.Scatter(
+                x=_yrs, y=_am.values, mode="lines+markers", name="Media anual",
+                line=dict(color=vcolor, width=2.2), marker=dict(size=5, color=vcolor),
+            ))
+            fig_main.add_trace(go.Scatter(
+                x=_yrs, y=(_am + _as).values, mode="lines", name="+1σ",
+                line=dict(color=vcolor, width=1, dash="dot"),
+            ))
+            fig_main.add_trace(go.Scatter(
+                x=_yrs, y=(_am - _as).values, mode="lines", name="-1σ",
+                line=dict(color=vcolor, width=1, dash="dot"),
+            ))
+        else:  # Área (default)
+            fig_main.add_trace(go.Scatter(
+                x=_yrs + _yrs[::-1],
+                y=list(_am + _as) + list((_am - _as).values[::-1]),
+                fill="toself", fillcolor=_rgba(vcolor, 0.15),
+                line=dict(width=0), name="Rango ±σ anual",
+            ))
+            fig_main.add_trace(go.Scatter(
+                x=_yrs, y=_am.values, mode="lines+markers", name="Media anual",
+                line=dict(color=vcolor, width=2.2), marker=dict(size=5, color=vcolor),
+            ))
+        fig_main.add_hline(y=float(_am.mean()), line_color="#374151", line_dash="dash",
+                           line_width=1, annotation_text="Media hist.", annotation_position="right")
+        fig_main.update_layout(yaxis_title=vlabel, xaxis_title="Año",
+                               legend=dict(orientation="h", y=1.08, x=0))
+
+    # ── F. ACUMULADOS ─────────────────────────────────────────
+    elif tipo_analisis == "Acumulados":
+        _hist_cum  = raw_df.groupby("month")[col].mean().reindex(_meses_presentes).cumsum()
+        _yrs_all   = sorted(raw_df["year"].unique())
+        _show_yrs  = _yrs_all[-5:] if len(_yrs_all) > 5 else _yrs_all
+        _pal       = ["#93c5fd", "#60a5fa", "#3b82f6", "#2563eb", "#1d4ed8"]
+        for i, yr in enumerate(_show_yrs):
+            _yd  = raw_df[raw_df["year"] == yr].sort_values("month")
+            _yd  = _yd[_yd["month"].isin(_meses_presentes)]
+            _yc  = _yd[col].cumsum().values
+            _mns = [_MON_NAMES[m - 1] for m in _yd["month"].values]
+            _c   = _pal[i % len(_pal)]
+            if tipo_grafico == "Área":
+                fig_main.add_trace(go.Scatter(
+                    x=_mns, y=_yc, mode="lines", name=str(yr), fill="tozeroy",
+                    line=dict(color=_c, width=1.5), fillcolor=_rgba(_c, 0.10),
+                ))
+            else:  # Línea (default)
+                fig_main.add_trace(go.Scatter(
+                    x=_mns, y=_yc, mode="lines+markers", name=str(yr),
+                    line=dict(color=_c, width=1.5), marker=dict(size=4),
+                ))
+        fig_main.add_trace(go.Scatter(
+            x=_mon_labels, y=_hist_cum.values, mode="lines", name="Media histórica",
+            line=dict(color="#374151", width=2.5, dash="dash"),
+        ))
+        fig_main.update_layout(yaxis_title=f"{vlabel} acumulado", xaxis_title="Mes",
+                               legend=dict(orientation="h", y=1.08, x=0))
+
+    # ── G. COMPARACIÓN HISTÓRICA ──────────────────────────────
+    elif tipo_analisis == "Comparación histórica":
+        _p10m = raw_df.groupby("month")[col].quantile(0.10).reindex(_meses_presentes)
+        _p50m = raw_df.groupby("month")[col].quantile(0.50).reindex(_meses_presentes)
+        _p90m = raw_df.groupby("month")[col].quantile(0.90).reindex(_meses_presentes)
+        _mxs  = _mon_labels
+        fig_main.add_trace(go.Scatter(
+            x=_mxs + _mxs[::-1],
+            y=list(_p90m.values) + list(_p10m.values[::-1]),
+            fill="toself", fillcolor=_rgba(vcolor, 0.12),
+            line=dict(width=0), name="Rango P10–P90",
+        ))
+        fig_main.add_trace(go.Scatter(
+            x=_mxs, y=_p50m.values, mode="lines", name="Mediana histórica",
+            line=dict(color="#374151", width=2, dash="dash"),
+        ))
+        _lyd = raw_df[raw_df["year"] == end_yr].sort_values("month")
+        _lyd = _lyd[_lyd["month"].isin(_meses_presentes)]
+        if not _lyd.empty:
+            if tipo_grafico == "Área":
+                fig_main.add_trace(go.Scatter(
+                    x=[_MON_NAMES[m - 1] for m in _lyd["month"].values],
+                    y=_lyd[col].values,
+                    mode="lines", name=str(end_yr), fill="tozeroy",
+                    line=dict(color=vcolor, width=2.5),
+                    fillcolor=_rgba(vcolor, 0.15),
+                ))
+            else:  # Línea (default)
+                fig_main.add_trace(go.Scatter(
+                    x=[_MON_NAMES[m - 1] for m in _lyd["month"].values],
+                    y=_lyd[col].values,
+                    mode="lines+markers", name=str(end_yr),
+                    line=dict(color=vcolor, width=2.5),
+                    marker=dict(size=7, color=vcolor, line=dict(color="white", width=1.5)),
+                ))
+        fig_main.update_layout(yaxis_title=vlabel, xaxis_title="Mes",
+                               legend=dict(orientation="h", y=1.08, x=0))
+
+    # ── H. RIESGO CLIMÁTICO ───────────────────────────────────
+    elif tipo_analisis == "Riesgo climático":
+        _clim_m  = raw_df.groupby("month")[col].mean().replace(0, float("nan"))
+        _df_r    = raw_df.copy()
+        _df_r["anom_pct"] = ((_df_r[col] - _df_r["month"].map(_clim_m))
+                              / _df_r["month"].map(_clim_m) * 100)
+        _pvt_r   = _df_r.pivot_table(values="anom_pct", index="year", columns="month", aggfunc="mean")
+        _pvt_r   = _pvt_r.reindex(columns=_meses_presentes)
+        _pvt_r.columns = [_MON_NAMES[m - 1] for m in _pvt_r.columns]
+        if tipo_grafico == "Barras":
+            _rsk_m  = _df_r.groupby("month")["anom_pct"].std().reindex(_meses_presentes)
+            _mx_r   = float(_rsk_m.max()) if float(_rsk_m.max()) > 0 else 1.0
+            _rc     = ["#ef4444" if v > _mx_r * 0.75 else
+                       ("#f59e0b" if v > _mx_r * 0.5 else "#22c55e")
+                       for v in _rsk_m.values]
+            fig_main.add_trace(go.Bar(
+                x=_mon_labels, y=_rsk_m.values,
+                marker_color=_rc, name="Volatilidad (%)",
+            ))
+            fig_main.update_layout(yaxis_title="Volatilidad anomalía (%)", xaxis_title="Mes")
+        else:  # Heatmap (default)
+            fig_main = go.Figure(go.Heatmap(
+                z=_pvt_r.values, x=_pvt_r.columns.tolist(), y=_pvt_r.index.tolist(),
+                colorscale="RdBu_r", zmid=0,
+                colorbar=dict(title="Anomalía (%)", len=0.8),
+            ))
+            fig_main.update_layout(yaxis_title="Año", xaxis_title="Mes")
+
+    # ── Layout común ──────────────────────────────────────────
+    fig_main.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        template="plotly_white", height=420,
+        margin=dict(l=0, r=40, t=45, b=0),
+    )
+    st.plotly_chart(fig_main, width="stretch")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ─────────────────────────────────────────────────────────
+    # FILA SECUNDARIA: gráfico complementario + insights
+    # ─────────────────────────────────────────────────────────
+    sec_a, sec_b = st.columns([3, 2], gap="small")
+
+    with sec_a:
+        st.markdown('<div class="ap-card" style="padding:0.75rem 1rem 1rem 1rem;">', unsafe_allow_html=True)
+        fig_sec = go.Figure()
+        _sec_title = ""
+
+        if tipo_analisis == "Tendencia histórica":
+            _av   = raw_df.groupby("year")[col].agg(agg_fn)
+            _hm   = float(_av.mean())
+            _bc   = [_rgba(vcolor, 0.9) if v >= _hm else "#93c5fd" for v in _av.values]
+            fig_sec.add_trace(go.Bar(x=_av.index, y=_av.values, marker_color=_bc, name=agregacion))
+            fig_sec.add_hline(y=_hm, line_color="#374151", line_dash="dash",
+                              line_width=1.5, annotation_text="Media")
+            fig_sec.update_layout(yaxis_title=vlabel, xaxis_title="Año")
+            _sec_title = f"{agregacion} anual · {var_clim}"
+
+        elif tipo_analisis == "Estacionalidad":
+            for mi, mn in zip(_meses_presentes, _mon_labels):
+                _mv = raw_df[raw_df["month"] == mi][col].dropna().values
+                fig_sec.add_trace(go.Box(
+                    y=_mv, name=mn, marker_color=vcolor, boxmean="sd",
+                    line=dict(color="#374151", width=1), fillcolor=_rgba(vcolor, 0.25),
+                ))
+            fig_sec.update_layout(yaxis_title=vlabel, xaxis_title="Mes", showlegend=False)
+            _sec_title = f"Distribución mensual · {var_clim}"
+
+        elif tipo_analisis == "Anomalías":
+            _clm2  = raw_df.groupby("month")[col].mean()
+            _dfa2  = raw_df.copy()
+            _dfa2["anom"] = _dfa2[col] - _dfa2["month"].map(_clm2)
+            _cuman = _dfa2.groupby("year")["anom"].mean().cumsum().reset_index()
+            fig_sec.add_trace(go.Scatter(
+                x=_cuman["year"], y=_cuman["anom"],
+                mode="lines+markers", name="Anomalía acumulada",
+                fill="tozeroy", fillcolor=_rgba(vcolor, 0.12),
+                line=dict(color=vcolor, width=2),
+            ))
+            fig_sec.add_hline(y=0, line_color="#374151", line_width=1)
+            fig_sec.update_layout(yaxis_title=f"Anomalía acum. ({vunit})", xaxis_title="Año")
+            _sec_title = "Anomalía acumulada histórica"
+
+        elif tipo_analisis == "Extremos":
+            _er  = raw_df.copy()
+            _er["is_hi"] = _er[col] > raw_df[col].quantile(0.90)
+            _er["is_lo"] = _er[col] < raw_df[col].quantile(0.10)
+            _eby = _er.groupby("year")[["is_hi", "is_lo"]].sum().reset_index()
+            fig_sec.add_trace(go.Bar(x=_eby["year"], y=_eby["is_hi"],
+                                     name="Extremos altos (>P90)", marker_color="#ef4444", opacity=0.8))
+            fig_sec.add_trace(go.Bar(x=_eby["year"], y=_eby["is_lo"],
+                                     name="Extremos bajos (<P10)", marker_color="#3b82f6", opacity=0.8))
+            fig_sec.update_layout(yaxis_title="Meses extremos/año", xaxis_title="Año",
+                                  barmode="stack", legend=dict(orientation="h", y=1.08))
+            _sec_title = "Frecuencia de eventos extremos"
+
+        elif tipo_analisis == "Variabilidad":
+            _dcv  = raw_df.copy()
+            _dcv["decade"] = (_dcv["year"] // 10) * 10
+            _cvd  = (_dcv.groupby("decade")[col]
+                     .apply(lambda s: (s.std() / s.mean() * 100) if s.mean() != 0 else 0)
+                     .reset_index(name="cv"))
+            _cvd["dlabel"] = _cvd["decade"].astype(str) + "s"
+            fig_sec.add_trace(go.Bar(x=_cvd["dlabel"], y=_cvd["cv"],
+                                     marker_color=vcolor, name="CV (%)"))
+            fig_sec.update_layout(yaxis_title="Coef. Variación (%)", xaxis_title="Década")
+            _sec_title = "Variabilidad inter-anual por década"
+
+        elif tipo_analisis == "Acumulados":
+            _at    = raw_df.groupby("year")[col].agg(agg_fn)
+            _p25t  = float(_at.quantile(0.25))
+            _p75t  = float(_at.quantile(0.75))
+            _bca   = [_rgba(vcolor, 0.9) if v > _p75t else ("#3b82f6" if v < _p25t else "#6b7280")
+                      for v in _at.values]
+            fig_sec.add_trace(go.Bar(x=_at.index, y=_at.values, marker_color=_bca, name=agregacion))
+            fig_sec.add_hline(y=_p75t, line_color="#ef4444", line_dash="dot",
+                              line_width=1, annotation_text="P75")
+            fig_sec.add_hline(y=_p25t, line_color="#3b82f6", line_dash="dot",
+                              line_width=1, annotation_text="P25")
+            fig_sec.update_layout(yaxis_title=vlabel, xaxis_title="Año")
+            _sec_title = f"{agregacion} anual con percentiles"
+
+        elif tipo_analisis == "Comparación histórica":
+            _rk  = (raw_df.groupby("year")[col].agg(agg_fn)
+                    .sort_values(ascending=False).reset_index())
+            _rk.columns = ["Año", vlabel]
+            _rkc = [vcolor if yr == end_yr else "#d1d5db" for yr in _rk["Año"]]
+            fig_sec.add_trace(go.Bar(x=_rk["Año"], y=_rk[vlabel],
+                                     marker_color=_rkc, name="Valor anual"))
+            fig_sec.update_layout(yaxis_title=vlabel, xaxis_title="Año")
+            _sec_title = f"Ranking histórico · {var_clim}"
+
+        elif tipo_analisis == "Riesgo climático":
+            _clm4   = raw_df.groupby("month")[col].mean()
+            _dfr4   = raw_df.copy()
+            _dfr4["abs_anom"] = (_dfr4[col] - _dfr4["month"].map(_clm4)).abs()
+            _rmo    = _dfr4.groupby("month")["abs_anom"].mean().reset_index()
+            _rmo["mn"] = _rmo["month"].apply(lambda m: _MON_NAMES[m - 1])
+            _mx     = float(_rmo["abs_anom"].max())
+            _rc     = ["#ef4444" if v > _mx * 0.75 else ("#f59e0b" if v > _mx * 0.5 else "#22c55e")
+                       for v in _rmo["abs_anom"]]
+            fig_sec.add_trace(go.Bar(x=_rmo["mn"], y=_rmo["abs_anom"],
+                                     marker_color=_rc, name="Variabilidad"))
+            fig_sec.update_layout(yaxis_title=f"Variabilidad media ({vunit})", xaxis_title="Mes")
+            _sec_title = "Riesgo climático por mes"
+
+        fig_sec.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            template="plotly_white", height=320,
+            margin=dict(l=0, r=20, t=35, b=0),
+            title=dict(text=_sec_title, font=dict(size=13)),
+        )
+        st.plotly_chart(fig_sec, width="stretch")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with sec_b:
+        st.markdown('<div class="ap-card">', unsafe_allow_html=True)
+        section_header("Resumen analítico")
+        _ins = []
+
+        if tipo_analisis == "Tendencia histórica":
+            _tdir = "ascendente" if _trend_dec > 0 else "descendente"
+            _ins  = [
+                f"<strong>Tendencia {start_yr}–{end_yr}:</strong> {_tdir}. "
+                f"<strong>{abs(_trend_dec):.2f} {vunit}/década</strong>.",
+                f"<strong>Último año ({end_yr}):</strong> {_last_v:.1f} {vunit} · "
+                f"{'por encima' if _last_pct >= 0 else 'por debajo'} de la media en "
+                f"<strong>{abs(_last_pct):.1f}%</strong>.",
+                f"<strong>Rango histórico:</strong> {_min_v:.1f}–{_max_v:.1f} {vunit}.",
+            ]
+
+        elif tipo_analisis == "Estacionalidad":
+            _mm   = raw_df.groupby("month")[col].mean()
+            _pk   = int(_mm.idxmax())
+            _tr2  = int(_mm.idxmin())
+            _ins  = [
+                f"<strong>Mes pico:</strong> {_MON_NAMES[_pk-1]} ({_mm[_pk]:.1f} {vunit}).",
+                f"<strong>Mes mínimo:</strong> {_MON_NAMES[_tr2-1]} ({_mm[_tr2]:.1f} {vunit}).",
+                f"<strong>Amplitud estacional:</strong> {float(_mm.max()-_mm.min()):.1f} {vunit}.",
+            ]
+
+        elif tipo_analisis == "Anomalías":
+            _clmi  = raw_df.groupby("month")[col].mean()
+            _dfa3  = raw_df.copy()
+            _dfa3["anom"] = _dfa3[col] - _dfa3["month"].map(_clmi)
+            _aa3   = _dfa3.groupby("year")["anom"].mean()
+            _nab   = int((_aa3 > 0).sum())
+            _mxay  = int(_aa3.idxmax())
+            _mnay  = int(_aa3.idxmin())
+            _ins   = [
+                f"<strong>Años sobre la normal:</strong> {_nab} de {len(_aa3)} ({_nab/len(_aa3)*100:.0f}%).",
+                f"<strong>Mayor anomalía +:</strong> {_mxay} (+{_aa3[_mxay]:.2f} {vunit}).",
+                f"<strong>Mayor anomalía −:</strong> {_mnay} ({_aa3[_mnay]:.2f} {vunit}).",
+            ]
+
+        elif tipo_analisis == "Extremos":
+            _p10e = float(raw_df[col].quantile(0.10))
+            _p90e = float(raw_df[col].quantile(0.90))
+            _nhi  = int((raw_df[col] > _p90e).sum())
+            _nlo  = int((raw_df[col] < _p10e).sum())
+            _ins  = [
+                f"<strong>Umbral superior (P90):</strong> {_p90e:.1f} {vunit}.",
+                f"<strong>Umbral inferior (P10):</strong> {_p10e:.1f} {vunit}.",
+                f"<strong>Meses extremos:</strong> {_nhi} altos · {_nlo} bajos de "
+                f"{len(raw_df[col].dropna())} obs.",
+            ]
+
+        elif tipo_analisis == "Variabilidad":
+            _am2 = raw_df.groupby("year")[col].mean()
+            _as2 = raw_df.groupby("year")[col].std()
+            _cvm = float((_as2 / _am2.replace(0, float("nan"))).mean() * 100)
+            _mvy = int(_as2.idxmax())
+            _ins = [
+                f"<strong>Coef. variación medio:</strong> {_cvm:.1f}% (dispersión inter-anual).",
+                f"<strong>Año más variable:</strong> {_mvy} (σ = {_as2[_mvy]:.2f} {vunit}).",
+                f"<strong>Rango IQR anual:</strong> "
+                f"{float(_am2.quantile(0.75)-_am2.quantile(0.25)):.2f} {vunit}.",
+            ]
+
+        elif tipo_analisis == "Acumulados":
+            _ac   = raw_df.groupby("year")[col].agg(agg_fn)
+            _mxyr = int(_ac.idxmax())
+            _mnyr = int(_ac.idxmin())
+            _ins  = [
+                f"<strong>Año más alto:</strong> {_mxyr} ({_ac[_mxyr]:.1f} {vunit}).",
+                f"<strong>Año más bajo:</strong> {_mnyr} ({_ac[_mnyr]:.1f} {vunit}).",
+                f"<strong>Amplitud anual:</strong> {_ac[_mxyr]-_ac[_mnyr]:.1f} {vunit}.",
+            ]
+
+        elif tipo_analisis == "Comparación histórica":
+            _rkh = raw_df.groupby("year")[col].agg(agg_fn).sort_values(ascending=False)
+            _rp  = (list(_rkh.index).index(end_yr) + 1) if end_yr in _rkh.index else None
+            _ins = [
+                (f"<strong>{end_yr}: puesto {_rp}</strong> de {len(_rkh)} años."
+                 if _rp else f"<strong>Año {end_yr}:</strong> sin datos completos."),
+                f"<strong>Año máximo:</strong> {int(_rkh.index[0])} ({_rkh.iloc[0]:.1f} {vunit}).",
+                f"<strong>Año mínimo:</strong> {int(_rkh.index[-1])} ({_rkh.iloc[-1]:.1f} {vunit}).",
+            ]
+
+        elif tipo_analisis == "Riesgo climático":
+            _clm5  = raw_df.groupby("month")[col].mean()
+            _dfr5  = raw_df.copy()
+            _dfr5["anom"] = _dfr5[col] - _dfr5["month"].map(_clm5)
+            _rmo5  = _dfr5.groupby("month")["anom"].apply(lambda s: s.abs().mean())
+            _prm   = int(_rmo5.idxmax())
+            _lrm   = int(_rmo5.idxmin())
+            _ins   = [
+                f"<strong>Mes más variable:</strong> {_MON_NAMES[_prm-1]} "
+                f"(var. media {_rmo5[_prm]:.2f} {vunit}).",
+                f"<strong>Mes más estable:</strong> {_MON_NAMES[_lrm-1]} "
+                f"(var. media {_rmo5[_lrm]:.2f} {vunit}).",
+                f"<strong>Fuente:</strong> {fuente_ch}.",
+            ]
+
+        for _line in _ins:
+            st.markdown(f'<div class="info-box" style="margin:0.4rem 0;">{_line}</div>',
+                        unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="margin-top:0.75rem;font-size:0.73rem;color:#9aa0a6;">'
+            f'<span class="badge {"badge-green" if ok_ch else "badge-amber"}">{fuente_ch}</span> · '
+            f'{lat_ca:.2f}°, {lon_ca:.2f}° · {end_yr - start_yr + 1} años</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════

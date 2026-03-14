@@ -511,6 +511,111 @@ class AgriPulseEngine:
             'hum_avg':      round(float(hums_arr.mean()), 0),
         }
 
+    # ══════════════════════════════════════════════════════════
+    # MÓDULO 3b — Historial Climático Multi-decadal (NASA POWER monthly)
+    # ══════════════════════════════════════════════════════════
+    def get_climate_history(self, lat, lon, start_year=2005, end_year=2024):
+        """Monthly historical climate data from NASA POWER for multi-year analysis.
+
+        Returns dict:
+            success  : bool
+            fuente   : str
+            df       : DataFrame(year, month, date, temp_mean, temp_max, temp_min,
+                                 precip[mm/month], humidity[%], radiation[MJ/m²/d], gdd)
+        """
+        import calendar
+        params = {
+            'parameters': 'T2M,T2M_MAX,T2M_MIN,PRECTOTCORR,RH2M,ALLSKY_SFC_SW_DWN',
+            'community': 'AG',
+            'longitude': lon,
+            'latitude':  lat,
+            'start':     f'{start_year}01',
+            'end':       f'{end_year}12',
+            'format':    'JSON',
+        }
+        try:
+            r = requests.get(
+                'https://power.larc.nasa.gov/api/temporal/monthly/point',
+                params=params, timeout=45,
+            )
+            if r.status_code == 200:
+                props     = r.json()['properties']['parameter']
+                NASA_FILL = -999.0
+
+                def _cd(d):
+                    return {k: (float(v) if float(v) != NASA_FILL else float('nan'))
+                            for k, v in d.items()}
+
+                t2m     = _cd(props.get('T2M', {}))
+                t2m_max = _cd(props.get('T2M_MAX', {}))
+                t2m_min = _cd(props.get('T2M_MIN', {}))
+                prec    = _cd(props.get('PRECTOTCORR', {}))
+                rh2m    = _cd(props.get('RH2M', {}))
+                rad     = _cd(props.get('ALLSKY_SFC_SW_DWN', {}))
+
+                records = []
+                for key in sorted(t2m.keys()):
+                    if len(key) == 6 and key.isdigit():
+                        yr, mo = int(key[:4]), int(key[4:])
+                        if not (start_year <= yr <= end_year and 1 <= mo <= 12):
+                            continue
+                        tm    = t2m.get(key, float('nan'))
+                        ndays = calendar.monthrange(yr, mo)[1]
+                        p_rt  = prec.get(key, float('nan'))
+                        p_tot = (p_rt * ndays) if not np.isnan(p_rt) else float('nan')
+                        records.append({
+                            'year':      yr,
+                            'month':     mo,
+                            'date':      pd.Timestamp(yr, mo, 1),
+                            'temp_mean': round(tm, 1) if not np.isnan(tm) else float('nan'),
+                            'temp_max':  round(t2m_max.get(key, float('nan')), 1),
+                            'temp_min':  round(t2m_min.get(key, float('nan')), 1),
+                            'precip':    round(max(0, p_tot), 1) if not np.isnan(p_tot) else float('nan'),
+                            'humidity':  round(rh2m.get(key, float('nan')), 1),
+                            'radiation': round(rad.get(key, float('nan')), 2),
+                            'gdd':       round(max(0, tm - 10) * ndays, 1) if not np.isnan(tm) else 0.0,
+                        })
+                if len(records) >= 12:
+                    df = pd.DataFrame(records).sort_values('date').reset_index(drop=True)
+                    return {'success': True, 'fuente': 'NASA POWER (real)', 'df': df}
+        except Exception:
+            pass
+        return self._fallback_climate_history(lat, lon, start_year, end_year)
+
+    def _fallback_climate_history(self, lat, lon, start_year=2005, end_year=2024):
+        """Synthetic monthly climate history using climatological normals + interannual variability."""
+        import calendar
+        lat_adj    = (abs(lat) - 33) * (-0.6)
+        precip_adj = 1.0 + (33 - abs(lat)) * 0.025
+        seed       = int(abs(lat * 100) + abs(lon * 100)) % (2**31 - 1)
+        rng        = np.random.RandomState(seed)
+        records    = []
+        for yr in range(start_year, end_year + 1):
+            enso_phase   = np.sin(2 * np.pi * (yr - 2000) / 4.5)
+            yr_temp_anom = rng.normal(0, 0.35) + 0.022 * (yr - 2000)
+            yr_prec_fac  = rng.lognormal(0, 0.17) * (1 - 0.10 * enso_phase) * precip_adj
+            for mo in range(1, 13):
+                t_base, p_month, h_base, rd_base = self._CLIM_NORMALS[mo]
+                ndays  = calendar.monthrange(yr, mo)[1]
+                tm     = round(t_base + lat_adj + yr_temp_anom + rng.normal(0, 0.4), 1)
+                precip = round(max(0, p_month * yr_prec_fac * (0.65 + 0.7 * rng.random())), 1)
+                hum    = round(min(95, max(25, h_base + rng.normal(0, 3.2))), 1)
+                rd     = round(max(0.5, rd_base * (0.78 + 0.44 * rng.random())), 2)
+                records.append({
+                    'year':      yr,
+                    'month':     mo,
+                    'date':      pd.Timestamp(yr, mo, 1),
+                    'temp_mean': tm,
+                    'temp_max':  round(tm + 6.5 + rng.normal(0, 0.6), 1),
+                    'temp_min':  round(tm - 6.0 + rng.normal(0, 0.6), 1),
+                    'precip':    precip,
+                    'humidity':  hum,
+                    'radiation': rd,
+                    'gdd':       round(max(0, tm - 10) * ndays, 1),
+                })
+        df = pd.DataFrame(records).sort_values('date').reset_index(drop=True)
+        return {'success': False, 'fuente': 'Climatología sintética SMN/INTA', 'df': df}
+
     def get_phenology_stage(self, crop, gdd_acum):
         stages = {
             'Maíz': [(0,'VE — Emergencia'),(100,'V3 — 3 hojas'),(200,'V6 — 6 hojas  ⭐ VENTANA N'),
