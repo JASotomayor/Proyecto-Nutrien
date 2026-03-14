@@ -34,6 +34,16 @@ class AgriPulseEngine:
     # ─────────────────────────────────────────────
     SIIA_URL = "https://datos.magyp.gob.ar/dataset/9e1e77ba-267e-4eaa-a59f-3296e86b5f36/resource/95d066e6-8a0f-4a80-b59d-6f28f88eacd5/download/estimaciones-agricolas-2026-03.csv"
 
+    # Partidos del AMBA sin producción agrícola real — excluidos de todos los cálculos
+    _AMBA_URBAN = frozenset([
+        'Almirante Brown', 'Avellaneda', 'Berazategui', 'Berisso', 'Ensenada',
+        'Esteban Echeverría', 'Ezeiza', 'Florencio Varela', 'General San Martín',
+        'Hurlingham', 'Ituzaingó', 'José C. Paz', 'La Matanza', 'Lanús',
+        'Lomas de Zamora', 'Malvinas Argentinas', 'Merlo', 'Moreno', 'Morón',
+        'Presidente Perón', 'Quilmes', 'San Fernando', 'San Isidro', 'San Miguel',
+        'Tigre', 'Tres de Febrero', 'Vicente López',
+    ])
+
 
 
     # ─────────────────────────────────────────────
@@ -164,21 +174,30 @@ class AgriPulseEngine:
         """Carga local siia_superficie.csv (año, provincia, departamento, cultivo, lat, lon, zona_agroclimatica, sup_sembrada_ha)."""
         if self._sup_df is None:
             p = _DATA_DIR / 'siia_superficie.csv'
-            self.__class__._sup_df = pd.read_csv(p)
+            df = pd.read_csv(p)
+            self.__class__._sup_df = df[
+                ~((df['provincia'] == 'Buenos Aires') & (df['departamento'].isin(self._AMBA_URBAN)))
+            ].reset_index(drop=True)
         return self._sup_df
 
     def _load_prod(self):
         """Carga local siia_produccion.csv."""
         if self._prod_df is None:
             p = _DATA_DIR / 'siia_produccion.csv'
-            self.__class__._prod_df = pd.read_csv(p)
+            df = pd.read_csv(p)
+            self.__class__._prod_df = df[
+                ~((df['provincia'] == 'Buenos Aires') & (df['departamento'].isin(self._AMBA_URBAN)))
+            ].reset_index(drop=True)
         return self._prod_df
 
     def _load_rend(self):
         """Carga local siia_rendimiento.csv."""
         if self._rend_df is None:
             p = _DATA_DIR / 'siia_rendimiento.csv'
-            self.__class__._rend_df = pd.read_csv(p)
+            df = pd.read_csv(p)
+            self.__class__._rend_df = df[
+                ~((df['provincia'] == 'Buenos Aires') & (df['departamento'].isin(self._AMBA_URBAN)))
+            ].reset_index(drop=True)
         return self._rend_df
 
     def get_estado_fenologico_actual(self, cultivo='Maíz'):
