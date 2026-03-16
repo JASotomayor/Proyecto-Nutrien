@@ -5,7 +5,6 @@ Versión 2.0 | Stack: Streamlit 1.55 · Plotly 6.x · Pandas 2.3
 """
 
 import io
-import re
 import datetime
 from pathlib import Path
 import streamlit as st
@@ -559,13 +558,14 @@ def render_cultivo_buttons(key: str = "cultivo_btn", default: str = "Soja") -> s
     """
     _OPTIONS = ["Todos los cultivos", "Soja", "Maíz", "Trigo", "Girasol"]
     _default = default if default in _OPTIONS else "Soja"
+    st.markdown('<span class="filter-label">Cultivo</span>', unsafe_allow_html=True)
     selected = st.pills(
         "Cultivo",
         _OPTIONS,
         default=_default,
         selection_mode="single",
         key=key,
-        label_visibility="visible",
+        label_visibility="collapsed",
     )
     # Fallback si queda None (deselección accidental)
     if selected is None:
@@ -601,7 +601,6 @@ _NAV_OPTIONS = [
     "Potencial de Mercado",
     "Evolución y Proyección",
     "Clima",
-    "Oportunidad",
 ]
 
 with st.sidebar:
@@ -804,11 +803,12 @@ Podés ajustar los pesos en "Personalizar pesos" para reflejar la estrategia de 
                 _num_cols = [c for c in _num.select_dtypes('number').columns if c != 'rank']
                 score_df_base = (_num.groupby(['departamento', 'provincia', 'lat', 'lon'], as_index=False)
                                  .agg({c: 'mean' for c in _num_cols if c in _num.columns}))
-                score_df_base['clasificacion'] = (
+                _cls_df = (
                     pd.concat(_frames).groupby(['departamento', 'provincia'])['clasificacion']
-                    .agg(lambda x: x.value_counts().index[0]).reset_index()['clasificacion'].values
-                    if len(_frames) > 0 else 'MADUREZ'
+                    .agg(lambda x: x.value_counts().index[0]).reset_index()
                 )
+                score_df_base = score_df_base.merge(_cls_df, on=['departamento', 'provincia'], how='left')
+                score_df_base['clasificacion'] = score_df_base['clasificacion'].fillna('MADUREZ')
                 score_meta = {'percentil_ratio': int(sum(m.get('percentil_ratio', 50) for m in _metas) / len(_metas))}
                 _arg = pd.concat(_frames).groupby(['departamento', 'provincia'])['argumento_venta'].first().reset_index()
                 score_df_base = score_df_base.merge(_arg, on=['departamento', 'provincia'], how='left')
@@ -833,6 +833,14 @@ Podés ajustar los pesos en "Personalizar pesos" para reflejar la estrategia de 
         _cls_opts = ["Todas", "EXPANSIÓN", "MADUREZ", "CONTRACCIÓN", "EMERGENTE"]
         cls_filter_ps = st.selectbox("Clasificación territorial", _cls_opts, key="ps_cls")
 
+    def _reset_weights():
+        st.session_state.w_dem   = 25
+        st.session_state.w_terr  = 20
+        st.session_state.w_brech = 20
+        st.session_state.w_ratio = 15
+        st.session_state.w_clima = 10
+        st.session_state.w_tend  = 10
+
     with st.expander("Personalizar pesos del score (deben sumar 100%)"):
         wc1, wc2, wc3 = st.columns(3)
         with wc1:
@@ -844,6 +852,7 @@ Podés ajustar los pesos en "Personalizar pesos" para reflejar la estrategia de 
         with wc3:
             w_brech = st.number_input("Brecha tech. (%)", 0, 100, 20, 5, key="w_brech")
             w_tend  = st.number_input("Tendencia (%)",    0, 100, 10, 5, key="w_tend")
+        st.button("↺ Restaurar pesos base", on_click=_reset_weights, key="btn_reset_w")
         total_w = w_dem + w_terr + w_brech + w_ratio + w_clima + w_tend
         if total_w != 100:
             st.warning(f"Los pesos suman {total_w}%. Deben sumar 100% para aplicar. Se usan los pesos base.")
@@ -1013,17 +1022,22 @@ Podés ajustar los pesos en "Personalizar pesos" para reflejar la estrategia de 
     st.markdown("---")
     section_header("Detalle de Departamento")
 
-    depto_options = score_df['departamento'].tolist()
-    depto_sel = st.selectbox("Seleccionar departamento", options=depto_options, index=0)
-    row_sel   = score_df[score_df['departamento'] == depto_sel].iloc[0]
+    depto_options = (score_df['departamento'] + ' (' + score_df['provincia'] + ')').tolist()
+    depto_label   = st.selectbox("Seleccionar departamento", options=depto_options, index=0)
+    row_sel = score_df[
+        (score_df['departamento'] + ' (' + score_df['provincia'] + ')') == depto_label
+    ].iloc[0]
+    depto_sel = row_sel['departamento']
 
     dcol1, dcol2 = st.columns([1, 1])
 
     with dcol1:
+        _r_vals  = [float(row_sel.get(c, 50)) for c in
+                    ['score_demanda','score_territorial','score_brecha','score_ratio','score_clima','score_tendencia']]
+        _r_theta = ['Demanda', 'Territorial', 'Brecha Tech.', 'Ratio Mercado', 'Clima', 'Tendencia']
         fig_radar = go.Figure(go.Scatterpolar(
-            r=[float(row_sel.get(c, 50)) for c in
-               ['score_demanda','score_territorial','score_brecha','score_ratio','score_clima','score_tendencia']],
-            theta=['Demanda', 'Territorial', 'Brecha Tech.', 'Ratio Mercado', 'Clima', 'Tendencia'],
+            r=_r_vals + [_r_vals[0]],
+            theta=_r_theta + [_r_theta[0]],
             fill='toself',
             fillcolor='rgba(0,107,63,0.12)',
             line=dict(color='#006B3F', width=2),
@@ -1116,7 +1130,7 @@ elif _page == "Potencial de Mercado":
         prov_opts_mkt = ["Todas"] + sorted(_sup_df['provincia'].unique().tolist())
         prov_mkt = st.selectbox("Provincia", prov_opts_mkt, index=0, key="mkt_prov")
     with fa_col3:
-        fert_opts = ["Todos"] + list(engine.FERTILIZER_PRICES.keys())
+        fert_opts = ["Todos", "Urea", "MAP", "MOP"]
         fert_mkt = st.selectbox("Fertilizante", fert_opts, key="mkt_fert")
     with fa_col4:
         show_nutrien    = st.checkbox("Sucursales Nutrien", value=True, key="mkt_nutrien")
@@ -1126,54 +1140,70 @@ elif _page == "Potencial de Mercado":
     _cultivo_dosis = cultivo_mkt if cultivo_mkt in engine.TECH_DOSAGE else 'Soja'
     _inta = engine.TECH_DOSAGE[_cultivo_dosis]
     _dk = {f: f"dose_{_cultivo_dosis}_{f}" for f in ['Urea', 'MAP', 'MOP']}
-    for f in ['Urea', 'MAP', 'MOP']:
-        if _dk[f] not in st.session_state:
-            st.session_state[_dk[f]] = int(_inta.get(f, 0))
 
-    with st.expander(f"Ajustar dosis técnicas — {_cultivo_dosis} (kg/ha) · Por defecto: INTA EEA Marcos Juárez"):
-        _dc1, _dc2, _dc3, _dc4 = st.columns(4)
-        with _dc1:
-            st.slider("Urea (kg/ha)", 0, 300, step=10, key=_dk['Urea'])
-        with _dc2:
-            st.slider("MAP (kg/ha)", 0, 200, step=10, key=_dk['MAP'])
-        with _dc3:
-            st.slider("MOP (kg/ha)", 0, 150, step=10, key=_dk['MOP'])
-        with _dc4:
-            st.markdown("<br>", unsafe_allow_html=True)
-            def _cb_reset_dose(_dk=_dk, _inta=_inta):
-                for f in ['Urea', 'MAP', 'MOP']:
-                    st.session_state[_dk[f]] = int(_inta.get(f, 0))
-            st.button("Restaurar INTA", key=f"reset_dose_{_cultivo_dosis}",
-                      on_click=_cb_reset_dose)
-        _dosis_p = {f: st.session_state[_dk[f]] for f in ['Urea', 'MAP', 'MOP']}
-        if any(_dosis_p[f] != _inta.get(f, 0) for f in ['Urea', 'MAP', 'MOP']):
-            st.info(f"Dosis activas — Urea: {_dosis_p['Urea']} kg/ha · MAP: {_dosis_p['MAP']} kg/ha · MOP: {_dosis_p['MOP']} kg/ha")
-    _dosis_activas = {f: st.session_state[_dk[f]] for f in ['Urea', 'MAP', 'MOP']}
+    _fert_ranges = {'Urea': (0, 300), 'MAP': (0, 200), 'MOP': (0, 150)}
+    _fert_labels = {'Urea': 'Urea (kg/ha)', 'MAP': 'MAP (kg/ha)', 'MOP': 'MOP (kg/ha)'}
+
+    if cultivo_mkt == "Todos":
+        with st.expander("Ajustar dosis técnicas — seleccioná un cultivo específico para personalizar"):
+            st.info("Las dosis INTA se aplican por cultivo. Seleccioná un cultivo específico en el filtro para ajustar dosis.")
+        _dosis_activas = {}
+    else:
+        # Solo los fertilizantes que este cultivo realmente usa (dosis INTA > 0).
+        # Si dosis==0, el engine no genera filas para ese fert → slider desconectado → se oculta.
+        _ferts_usados = [f for f in ['Urea', 'MAP', 'MOP'] if _inta.get(f, 0) > 0]
+        for f in ['Urea', 'MAP', 'MOP']:
+            if _dk[f] not in st.session_state:
+                st.session_state[_dk[f]] = int(_inta.get(f, 0))
+
+        def _cb_reset_dose(_dk=_dk, _inta=_inta):
+            for f in ['Urea', 'MAP', 'MOP']:
+                st.session_state[_dk[f]] = int(_inta.get(f, 0))
+
+        with st.expander(f"Ajustar dosis técnicas — {_cultivo_dosis} (kg/ha) · INTA EEA Marcos Juárez"):
+            _dose_cols = st.columns(len(_ferts_usados) + 1)
+            for _i, _f in enumerate(_ferts_usados):
+                with _dose_cols[_i]:
+                    st.slider(_fert_labels[_f], *_fert_ranges[_f], step=10, key=_dk[_f])
+            with _dose_cols[-1]:
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.button("Restaurar INTA", key=f"reset_dose_{_cultivo_dosis}",
+                          on_click=_cb_reset_dose)
+            _dosis_p = {f: st.session_state[_dk[f]] for f in _ferts_usados}
+            if any(_dosis_p[f] != _inta.get(f, 0) for f in _ferts_usados):
+                _badges = ' · '.join(f"{f}: {_dosis_p[f]} kg/ha" for f in _ferts_usados)
+                st.info(f"Dosis activas — {_badges}")
+        _dosis_activas = {f: st.session_state[_dk[f]] for f in _ferts_usados}
 
     with st.spinner("Cargando datos de mercado..."):
         if cultivo_mkt == "Todos":
             _parts = [load_market(c, prov_mkt)[0] for c in ["Soja", "Maíz", "Trigo", "Girasol"]]
             result_df = pd.concat([p for p in _parts if not p.empty]).reset_index(drop=True)
-            map_df = result_df
         else:
-            result_df, map_df = load_market(cultivo_mkt, prov_mkt)
+            result_df, _ = load_market(cultivo_mkt, prov_mkt)
 
     if result_df.empty:
         st.info("Sin datos para esta selección.")
     else:
-        result_filt = result_df[result_df['fertilizante'] == fert_mkt].copy() if fert_mkt != "Todos" else result_df.copy()
+        # ── Filtro fertilizante ──
+        result_filt = (result_df[result_df['fertilizante'] == fert_mkt].copy()
+                       if fert_mkt != "Todos" else result_df.copy())
         for _col in ['dosis_kg_ha', 'demanda_potencial_tn', 'valor_mercado_musd']:
             if _col in result_filt.columns:
                 result_filt[_col] = result_filt[_col].astype(float)
 
+        # ── Aplicar dosis personalizadas (solo cuando un cultivo específico está activo) ──
+        # Bug fix A: _dosis_activas is {} when cultivo_mkt=="Todos" → loop doesn't run
         for fert_name, dosis_val in _dosis_activas.items():
             mask = result_filt['fertilizante'] == fert_name
             if mask.any():
-                result_filt.loc[mask, 'dosis_kg_ha'] = dosis_val
-                result_filt.loc[mask, 'demanda_potencial_tn'] = result_filt.loc[mask, 'area_ha'] * dosis_val / 1000
-                price = engine.FERTILIZER_PRICES.get(fert_name, 0)
-                result_filt.loc[mask, 'valor_mercado_musd'] = result_filt.loc[mask, 'demanda_potencial_tn'] * price / 1_000_000
+                _new_dem = (result_filt.loc[mask, 'area_ha'] * float(dosis_val) / 1000).values
+                price    = engine.FERTILIZER_PRICES.get(fert_name, 0)
+                result_filt.loc[mask, 'dosis_kg_ha']          = float(dosis_val)
+                result_filt.loc[mask, 'demanda_potencial_tn'] = _new_dem
+                result_filt.loc[mask, 'valor_mercado_musd']   = _new_dem * price / 1_000_000
 
+        # ── Agregación por depto×cultivo (intermedia) ──
         map_filt = (
             result_filt.groupby(['provincia', 'departamento', 'lat', 'lon', 'area_ha'])
             .agg(demanda_total_tn=('demanda_potencial_tn', 'sum'),
@@ -1181,14 +1211,25 @@ elif _page == "Potencial de Mercado":
             .reset_index()
         )
 
-        total_dem = result_filt['demanda_potencial_tn'].sum()
-        total_val = result_filt['valor_mercado_musd'].sum()
-        n_deptos_mkt = map_filt['departamento'].nunique()
+        # ── Bug fix B/C: colapsar a UN punto por departamento para mapa y tabla ──
+        # Cuando cultivo_mkt=="Todos", map_filt tiene múltiples filas por depto (una por cultivo).
+        # Sin este paso, el mapa superpone N burbujas en la misma coordenada.
+        map_plot = (
+            map_filt.groupby(['provincia', 'departamento', 'lat', 'lon'])
+            .agg(demanda_total_tn=('demanda_total_tn', 'sum'),
+                 valor_total_musd=('valor_total_musd', 'sum'),
+                 area_ha=('area_ha', 'sum'))
+            .reset_index()
+        )
+
+        total_dem    = result_filt['demanda_potencial_tn'].sum()
+        total_val    = result_filt['valor_mercado_musd'].sum()
+        n_deptos_mkt = map_plot['departamento'].nunique()
 
         mk1, mk2, mk3, mk4 = st.columns(4)
         with mk1:
             st.markdown(f"""<div class="kpi-box">
-                <div class="kpi-value">{map_filt['area_ha'].sum():,.0f}</div>
+                <div class="kpi-value">{map_plot['area_ha'].sum():,.0f}</div>
                 <div class="kpi-label">Hectáreas sembradas</div>
             </div>""", unsafe_allow_html=True)
         with mk2:
@@ -1210,7 +1251,7 @@ elif _page == "Potencial de Mercado":
         st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
         fig_mkt = px.scatter_map(
-            map_filt, lat='lat', lon='lon',
+            map_plot, lat='lat', lon='lon',
             size='demanda_total_tn', color='valor_total_musd',
             color_continuous_scale='Greens', size_max=35,
             zoom=4, center={'lat': -34.0, 'lon': -63.0},
@@ -1225,43 +1266,53 @@ elif _page == "Potencial de Mercado":
 
         if show_nutrien:
             nutrien_locs = pd.read_csv(_DATA_DIR / 'nutrien_locations.csv')
-            # Outer ring (dark green border effect)
+            # Borde exterior (contraste)
             fig_mkt.add_trace(go.Scattermap(
                 lat=nutrien_locs['lat'], lon=nutrien_locs['lon'], mode='markers',
-                marker=go.scattermap.Marker(size=22, color='#004D25', symbol='circle', opacity=1.0),
+                marker=go.scattermap.Marker(size=20, color='white', symbol='circle', opacity=1.0),
                 hoverinfo='skip', showlegend=False,
             ))
-            # Inner fill (Nutrien green)
+            # Punto Nutrien — círculo verde sólido
             fig_mkt.add_trace(go.Scattermap(
                 lat=nutrien_locs['lat'], lon=nutrien_locs['lon'], mode='markers',
-                marker=go.scattermap.Marker(size=14, color='#00A34F', symbol='circle', opacity=1.0),
-                hovertext=nutrien_locs['localidad'], hoverinfo='text', name='Nutrien',
+                marker=go.scattermap.Marker(size=13, color='#006B3F', symbol='circle', opacity=1.0),
+                hovertext=nutrien_locs['localidad'].apply(lambda x: f"🟢 Nutrien — {x}"),
+                hoverinfo='text', name='● Nutrien',
             ))
         if show_competitors:
             comp_locs = pd.read_csv(_DATA_DIR / 'competitor_locations.csv')
-            # Outer ring (dark red border effect)
+            # Borde exterior (contraste)
             fig_mkt.add_trace(go.Scattermap(
                 lat=comp_locs['lat'], lon=comp_locs['lon'], mode='markers',
-                marker=go.scattermap.Marker(size=22, color='#7C2D12', symbol='circle', opacity=1.0),
+                marker=go.scattermap.Marker(size=20, color='white', symbol='circle', opacity=1.0),
                 hoverinfo='skip', showlegend=False,
             ))
-            # Inner fill (vivid red)
+            # Punto Competencia — diamante rojo (forma distinta)
             fig_mkt.add_trace(go.Scattermap(
                 lat=comp_locs['lat'], lon=comp_locs['lon'], mode='markers',
-                marker=go.scattermap.Marker(size=14, color='#EF4444', symbol='circle', opacity=1.0),
-                hovertext=comp_locs['localidad'], hoverinfo='text', name='Competencia',
+                marker=go.scattermap.Marker(size=13, color='#DC2626', symbol='diamond', opacity=1.0),
+                hovertext=comp_locs['localidad'].apply(lambda x: f"🔴 Competencia — {x}"),
+                hoverinfo='text', name='◆ Competencia',
             ))
 
         fig_mkt.update_layout(
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
             template='plotly_white', height=460,
             margin=dict(l=0, r=0, t=36, b=0),
+            legend=dict(
+                x=0.99, y=0.99,
+                xanchor='right', yanchor='top',
+                bgcolor='rgba(255,255,255,0.92)',
+                bordercolor='#d1d5db', borderwidth=1,
+                font=dict(family='Inter, sans-serif', size=12),
+                tracegroupgap=6,
+            ),
         )
         st.plotly_chart(fig_mkt, width='stretch')
 
         section_header("Top 15 Departamentos por Demanda")
         top15 = (
-            map_filt.sort_values('demanda_total_tn', ascending=False)
+            map_plot.sort_values('demanda_total_tn', ascending=False)
             .head(15)[['departamento','provincia','area_ha','demanda_total_tn','valor_total_musd']]
             .rename(columns={'departamento':'Departamento','provincia':'Provincia',
                              'area_ha':'Área (ha)','demanda_total_tn':'Demanda (tn)','valor_total_musd':'Valor (M USD)'})
@@ -1271,15 +1322,20 @@ elif _page == "Potencial de Mercado":
         top15['Valor (M USD)'] = top15['Valor (M USD)'].apply(lambda x: f"$ {x:.2f}M")
         render_styled_table(top15)
 
-        if not map_filt.empty:
-            top_dept = map_filt.sort_values('demanda_total_tn', ascending=False).iloc[0]
+        if not map_plot.empty:
+            top_dept = map_plot.sort_values('demanda_total_tn', ascending=False).iloc[0]
+            _cult_txt = ("el agregado de cultivos analizados"
+                         if cultivo_mkt == "Todos" else cultivo_mkt)
+            _fert_txt = ("todos los fertilizantes" if fert_mkt == "Todos"
+                         else fert_mkt)
             st.markdown(f"""
             <div class="info-box">
                 <strong>Argumento Comercial:</strong><br>
-                <strong>{top_dept['departamento']}</strong> ({top_dept['provincia']}) — mayor demanda potencial:
+                <strong>{top_dept['departamento']}</strong> ({top_dept['provincia']}) es el departamento
+                con mayor demanda potencial de {_fert_txt}:
                 <strong>{top_dept['demanda_total_tn']:,.0f} tn</strong> valoradas en
                 <strong>USD {top_dept['valor_total_musd']:.2f}M</strong>,
-                con <strong>{top_dept['area_ha']:,.0f} ha</strong> sembradas de {cultivo_mkt}.
+                sobre <strong>{top_dept['area_ha']:,.0f} ha</strong> sembradas de {_cult_txt}.
             </div>
             """, unsafe_allow_html=True)
 
@@ -1306,18 +1362,54 @@ elif _page == "Evolución y Proyección":
     show_projection = periodo_anios is not None
     periodo_engine = periodo_anios or 5            # para CAGR/clasificación en el engine
 
+    with st.expander("¿Cómo se construye la proyección?"):
+        st.markdown("""
+**Clasificación territorial** — cada departamento se clasifica según el CAGR de su superficie sembrada en el período seleccionado: CAGR > 2% → EXPANSIÓN · CAGR < −1% → CONTRACCIÓN · resto → MADUREZ. En "Todos los cultivos" se usa el CAGR ponderado por área de cada cultivo.
+
+**Proyección individual** (cultivo específico) — aplica `ha(t) = ha_base × (1 + CAGR)^t`, usando el mismo CAGR del engine para mantener coherencia con la clasificación del mapa.
+
+**Vista "Todos los cultivos"** — el gráfico principal muestra el histórico agregado de todos los cultivos. La proyección por cultivo se activa opcionalmente y muestra cada cultivo por separado con su propio CAGR.
+
+**Reglas de prudencia** — se señalan o descartan proyecciones cuando: base < 500 ha · CAGR > ±45%/año (se aplica cap) · R² < 0.30. En esos casos la línea aparece gris punteada.
+
+**Banda de incertidumbre** — orientativa. Su amplitud crece con el horizonte temporal (∝ √t). No es un intervalo de confianza estadístico; refleja que la incertidumbre acumulada aumenta con el tiempo.
+        """)
+
+    terr_all_df = pd.DataFrame()  # tabla per-cultivo sin deduplicar; solo "Todos"
     with st.spinner("Calculando clasificación territorial..."):
         if cultivo_global == "Todos":
-            _t_all, _h_all, conteos = [], [], {}
+            _t_all, _h_all = [], []
             for _c in ["Soja", "Maíz", "Trigo", "Girasol"]:
-                _td, _hd, _cnt = load_territorial(_c, periodo_engine)
+                _td, _hd, _ = load_territorial(_c, periodo_engine)
                 if not _td.empty:
                     _t_all.append(_td)
-                    _h_all.append(_hd)
-                for k, v in _cnt.items():
-                    conteos[k] = conteos.get(k, 0) + v
-            terr_df = (pd.concat(_t_all).drop_duplicates(subset=['departamento', 'provincia'])
-                       .reset_index(drop=True) if _t_all else pd.DataFrame())
+                    _hd_c = _hd.copy()
+                    _hd_c['cultivo'] = _c   # añadir cultivo para el gráfico per-crop
+                    _h_all.append(_hd_c)
+            terr_all_df = pd.concat(_t_all).reset_index(drop=True) if _t_all else pd.DataFrame()
+            if not terr_all_df.empty:
+                # CAGR ponderado por ha_actual y área total por departamento
+                _g = terr_all_df.copy()
+                _g['_wcagr'] = _g['cagr_pct'] * _g['ha_actual']
+                _g['_wr2']   = _g['r2']       * _g['ha_actual']
+                terr_df = (
+                    _g.groupby(['departamento', 'provincia'])
+                    .agg(lat=('lat', 'first'), lon=('lon', 'first'),
+                         ha_actual=('ha_actual', 'sum'), proj_2026=('proj_2026', 'sum'),
+                         _wcagr=('_wcagr', 'sum'), _wr2=('_wr2', 'sum'),
+                         _ha=('ha_actual', 'sum'))
+                    .reset_index()
+                )
+                terr_df['cagr_pct'] = terr_df['_wcagr'] / terr_df['_ha'].clip(lower=1)
+                terr_df['r2']       = terr_df['_wr2']   / terr_df['_ha'].clip(lower=1)
+                terr_df = terr_df.drop(columns=['_wcagr', '_wr2', '_ha'])
+                terr_df['clasificacion'] = terr_df['cagr_pct'].apply(
+                    lambda c: 'EXPANSIÓN' if c > 2.0 else ('CONTRACCIÓN' if c < -1.0 else 'MADUREZ')
+                )
+                conteos = terr_df['clasificacion'].value_counts().to_dict()
+            else:
+                terr_df = pd.DataFrame()
+                conteos = {}
             hist_df = pd.concat(_h_all).reset_index(drop=True) if _h_all else pd.DataFrame()
         else:
             terr_df, hist_df, conteos = load_territorial(cultivo_global, periodo_engine)
@@ -1325,14 +1417,17 @@ elif _page == "Evolución y Proyección":
     if terr_df.empty:
         st.info("Sin datos de clasificación territorial. Verificar CSVs SIIA.")
     else:
-        bcol1, bcol2, bcol3, bcol4 = st.columns(4)
-        badge_info = [
-            ('EXPANSIÓN', 'badge-green'), ('MADUREZ', 'badge-amber'),
-            ('CONTRACCIÓN', 'badge-red'), ('EMERGENTE', 'badge-blue'),
-        ]
-        for col, (cls, badge_cls) in zip([bcol1, bcol2, bcol3, bcol4], badge_info):
+        if cultivo_global == "Todos":
+            # El CAGR ponderado del agregado produce solo EXPANSIÓN/MADUREZ/CONTRACCIÓN
+            _badge_info = [('EXPANSIÓN','badge-green'),('MADUREZ','badge-amber'),('CONTRACCIÓN','badge-red')]
+            _kpi_cols = st.columns(3)
+        else:
+            _badge_info = [('EXPANSIÓN','badge-green'),('MADUREZ','badge-amber'),
+                           ('CONTRACCIÓN','badge-red'),('EMERGENTE','badge-blue')]
+            _kpi_cols = st.columns(4)
+        for _bc, (cls, badge_cls) in zip(_kpi_cols, _badge_info):
             cnt = conteos.get(cls, 0)
-            with col:
+            with _bc:
                 st.markdown(f"""<div class="kpi-box">
                     <div class="kpi-value">{cnt}</div>
                     <div class="kpi-label">{cls}</div>
@@ -1366,10 +1461,13 @@ elif _page == "Evolución y Proyección":
         st.plotly_chart(fig_terr, width='stretch')
 
         section_header("Serie Histórica + Proyección por Departamento")
-        dept_terr_opts = terr_df['departamento'].tolist()
+        dept_terr_opts = (terr_df['departamento'] + ' (' + terr_df['provincia'] + ')').tolist()
         if dept_terr_opts:
-            dept_terr_sel = st.selectbox("Departamento", options=dept_terr_opts, key="terr_dept_sel")
-            dept_row = terr_df[terr_df['departamento'] == dept_terr_sel].iloc[0]
+            dept_terr_label = st.selectbox("Departamento", options=dept_terr_opts, key="terr_dept_sel")
+            dept_row = terr_df[
+                (terr_df['departamento'] + ' (' + terr_df['provincia'] + ')') == dept_terr_label
+            ].iloc[0]
+            dept_terr_sel = dept_row['departamento']
             _dept_mask = (
                 (hist_df['departamento'] == dept_terr_sel) &
                 (hist_df['provincia'] == dept_row['provincia'])
@@ -1387,78 +1485,173 @@ elif _page == "Evolución y Proyección":
                 last_year = int(dept_hist['año'].max())
                 last_val  = float(dept_hist[dept_hist['año'] == last_year]['sup_sembrada_ha'].values[0])
 
+                _hist_label = ('Total cultivos (agregado)'
+                               if cultivo_global == "Todos" else 'Superficie histórica')
                 fig_hist.add_trace(go.Scatter(
                     x=dept_hist['año'], y=dept_hist['sup_sembrada_ha'],
-                    mode='lines+markers', name='Superficie histórica',
+                    mode='lines+markers', name=_hist_label,
                     line=dict(color='#006B3F', width=2), marker=dict(size=5),
                 ))
 
+                # Guardrails de proyección
+                _CAGR_CAP = 0.45    # limita proyecciones disparadas (±45%/año)
+                _MIN_HA   = 500     # base mínima para proyección confiable
                 proj_info_str = ""
-                if show_projection:
-                    # Proyección usando la MISMA ventana que el CAGR para coherencia
-                    anio_ini_fit = last_year - periodo_anios
-                    period_window = dept_hist[
-                        (dept_hist['año'] >= anio_ini_fit) & (dept_hist['año'] <= last_year)
-                    ]
-                    if len(period_window) >= 2:
-                        x_fit = period_window['año'].values.astype(float)
-                        y_fit = period_window['sup_sembrada_ha'].values.astype(float)
-                        coeffs = np.polyfit(x_fit, y_fit, deg=1)
 
-                        # Años proyectados: N años desde last_year
-                        proj_years = list(range(last_year + 1, last_year + periodo_anios + 1))
-                        proj_vals  = [max(0.0, float(np.polyval(coeffs, yr))) for yr in proj_years]
+                if show_projection and cultivo_global != "Todos":
+                    # ── Proyección CAGR — cultivo específico ──
+                    # Usa el CAGR del engine: misma ventana y método que la clasificación.
+                    _cagr        = dept_row['cagr_pct'] / 100.0
+                    _r2          = dept_row['r2']
+                    _cagr_capped = abs(_cagr) > _CAGR_CAP
+                    _cagr_proj   = max(-_CAGR_CAP, min(_CAGR_CAP, _cagr))
+                    _tiny_base   = last_val < _MIN_HA
+                    _low_conf    = _r2 < 0.30 or _tiny_base
 
-                        # IC 95% basado en residuos de toda la serie histórica
-                        y_hat_all = np.polyval(coeffs, dept_hist['año'].values.astype(float))
-                        ci95 = max(0, round(float(np.std(
-                            dept_hist['sup_sembrada_ha'].values.astype(float) - y_hat_all
-                        )) * 1.96))
+                    # Volatilidad histórica para banda orientativa
+                    _pct_ch = (dept_hist['sup_sembrada_ha']
+                               .pct_change().replace([np.inf, -np.inf], np.nan).dropna())
+                    _vol = float(_pct_ch.std()) if len(_pct_ch) > 2 else 0.25
 
-                        # Banda de confianza
-                        fig_hist.add_trace(go.Scatter(
-                            x=proj_years + proj_years[::-1],
-                            y=[v + ci95 for v in proj_vals] + [v - ci95 for v in proj_vals[::-1]],
-                            fill='toself', fillcolor='rgba(0,107,63,0.10)',
-                            line=dict(color='rgba(0,0,0,0)'), name='IC 95%',
-                        ))
-                        # Línea de proyección arrancando desde el último dato histórico
-                        fig_hist.add_trace(go.Scatter(
-                            x=[last_year] + proj_years,
-                            y=[last_val] + proj_vals,
-                            mode='lines+markers',
-                            name=f'Proyección {periodo_label}',
-                            line=dict(color='#006B3F', width=2, dash='dash'),
-                            marker=dict(size=8, symbol='diamond'),
-                        ))
-                        proj_fin_year = proj_years[-1]
-                        proj_fin_val  = int(proj_vals[-1])
-                        proj_info_str = (
-                            f" · Proyección {proj_fin_year}: <strong>{proj_fin_val:,} ha</strong>"
-                            f" ±{ci95:,}"
-                        )
+                    proj_years = list(range(last_year + 1, last_year + periodo_anios + 1))
+                    proj_vals  = [max(0.0, last_val * (1 + _cagr_proj) ** t)
+                                  for t in range(1, len(proj_years) + 1)]
+                    # Banda orientativa: volatilidad × √t (se ensancha con el horizonte)
+                    _ci_lo = [max(0.0, v * (1 - _vol * t ** 0.5)) for t, v in enumerate(proj_vals, 1)]
+                    _ci_hi = [v * (1 + _vol * t ** 0.5) for t, v in enumerate(proj_vals, 1)]
 
-                chart_title_suffix = "" if show_projection else " (solo histórico)"
+                    _band_fill = 'rgba(239,68,68,0.08)' if _low_conf else 'rgba(0,107,63,0.10)'
+                    _line_col  = '#9ca3af' if _low_conf else '#006B3F'
+                    _line_dash = 'dot'     if _low_conf else 'dash'
+
+                    fig_hist.add_trace(go.Scatter(
+                        x=proj_years + proj_years[::-1], y=_ci_hi + _ci_lo[::-1],
+                        fill='toself', fillcolor=_band_fill,
+                        line=dict(color='rgba(0,0,0,0)'), name='Rango orientativo',
+                    ))
+                    fig_hist.add_trace(go.Scatter(
+                        x=[last_year] + proj_years, y=[last_val] + proj_vals,
+                        mode='lines+markers',
+                        name=f'Proyección CAGR ({_cagr_proj:+.1%}/año)',
+                        line=dict(color=_line_col, width=2, dash=_line_dash),
+                        marker=dict(size=8, symbol='diamond', color=_line_col),
+                    ))
+                    proj_fin_year = proj_years[-1]
+                    proj_fin_val  = int(proj_vals[-1])
+                    _warn = []
+                    if _cagr_capped: _warn.append(f'CAGR real {_cagr*100:+.1f}% → cap ±{_CAGR_CAP*100:.0f}%')
+                    if _tiny_base:   _warn.append(f'base pequeña ({last_val:,.0f} ha)')
+                    if _r2 < 0.30:   _warn.append(f'R²={_r2:.2f}')
+                    _conf_tag = (f' · <em style="color:#9ca3af">baja confianza: {", ".join(_warn)}</em>'
+                                 if _warn else '')
+                    proj_info_str = (
+                        f" · Proyección {proj_fin_year}: <strong>{proj_fin_val:,} ha</strong>"
+                        f" (CAGR {_cagr_proj:+.1%}/año){_conf_tag}"
+                    )
+
+                _title_suf = (" (total agregado)" if cultivo_global == "Todos"
+                              else ("" if show_projection else " (histórico)"))
                 fig_hist.update_layout(
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     template='plotly_white', height=320,
-                    title=f"{dept_terr_sel} — {cultivo_global} (ha sembradas){chart_title_suffix}",
+                    title=f"{dept_terr_sel} — {cultivo_global} (ha sembradas){_title_suf}",
                     xaxis_title="Campaña", yaxis_title="Hectáreas",
                     legend=dict(orientation='h', y=-0.15),
                     margin=dict(l=0, r=0, t=40, b=0),
                 )
                 st.plotly_chart(fig_hist, width='stretch')
 
-                r2_val   = dept_row['r2']
-                cagr_val = dept_row['cagr_pct']
-                cls_val  = dept_row['clasificacion']
-                st.markdown(f"""
-                <div class="info-box">
-                    <strong>{dept_terr_sel}</strong> · Clasificación: <strong>{cls_val}</strong> ·
-                    CAGR {periodo_label}: <strong>{cagr_val:+.1f}%</strong> ·
-                    R²: <strong>{r2_val:.3f}</strong>{proj_info_str}
-                </div>
-                """, unsafe_allow_html=True)
+                # ── Proyección por cultivo — solo "Todos" + periodo activo ──
+                if cultivo_global == "Todos" and show_projection:
+                    if st.checkbox("Ver proyección por cultivo", value=False, key="terr_per_crop"):
+                        _CROP_COLORS = {
+                            'Soja': '#006B3F', 'Maíz': '#f59e0b',
+                            'Trigo': '#3b82f6', 'Girasol': '#e57200',
+                        }
+                        fig_crop = go.Figure()
+                        for _c in ['Soja', 'Maíz', 'Trigo', 'Girasol']:
+                            if 'cultivo' not in hist_df.columns:
+                                break
+                            _crop_h = hist_df[
+                                (hist_df['departamento'] == dept_terr_sel) &
+                                (hist_df['provincia'] == dept_row['provincia']) &
+                                (hist_df['cultivo'] == _c)
+                            ].sort_values('año')
+                            if _crop_h.empty:
+                                continue
+                            _crop_rows = terr_all_df[
+                                (terr_all_df['departamento'] == dept_terr_sel) &
+                                (terr_all_df['provincia'] == dept_row['provincia']) &
+                                (terr_all_df['cultivo'] == _c)
+                            ]
+                            if _crop_rows.empty:
+                                continue
+                            _cr       = _crop_rows.iloc[0]
+                            _cc       = _CROP_COLORS.get(_c, '#6b7280')
+                            _c_ly     = int(_crop_h['año'].max())
+                            _c_lv     = float(_crop_h[_crop_h['año'] == _c_ly]['sup_sembrada_ha'].values[0])
+                            _c_cagr_r = float(_cr['cagr_pct']) / 100.0
+                            _c_cagr   = max(-_CAGR_CAP, min(_CAGR_CAP, _c_cagr_r))
+                            _c_low    = (_c_lv < _MIN_HA or abs(_c_cagr_r) > _CAGR_CAP
+                                         or float(_cr['r2']) < 0.25)
+                            # Histórico por cultivo (línea + markers pequeños)
+                            _conf_sfx = "" if not _c_low else " ⚠"
+                            fig_crop.add_trace(go.Scatter(
+                                x=_crop_h['año'], y=_crop_h['sup_sembrada_ha'],
+                                mode='lines+markers',
+                                name=f'{_c}  {_c_cagr:+.1%}/año{_conf_sfx}',
+                                line=dict(color=_cc, width=2), legendgroup=_c,
+                                marker=dict(size=4, color=_cc),
+                            ))
+                            # Proyección (omitida si baja confianza)
+                            if not _c_low:
+                                _c_py = list(range(_c_ly + 1, _c_ly + periodo_anios + 1))
+                                _c_pv = [max(0.0, _c_lv * (1 + _c_cagr) ** t)
+                                         for t in range(1, len(_c_py) + 1)]
+                                fig_crop.add_trace(go.Scatter(
+                                    x=[_c_ly] + _c_py, y=[_c_lv] + _c_pv,
+                                    mode='lines+markers', name=_c,
+                                    legendgroup=_c, showlegend=False,
+                                    line=dict(color=_cc, width=2, dash='dash'),
+                                    marker=dict(size=7, symbol='diamond', color=_cc),
+                                ))
+                        if fig_crop.data:
+                            fig_crop.update_layout(
+                                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                                template='plotly_white', height=310,
+                                title=f"{dept_terr_sel} — evolución y proyección por cultivo",
+                                xaxis_title="Campaña", yaxis_title="Hectáreas",
+                                legend=dict(orientation='h', y=-0.25, tracegroupgap=0),
+                                margin=dict(l=0, r=0, t=40, b=20),
+                            )
+                            st.plotly_chart(fig_crop, width='stretch')
+                            st.caption(
+                                "─── histórico (marcadores ●) · ╌ ╌ proyección CAGR (marcadores ◆) · "
+                                "⚠ = baja confianza (base < 500 ha, CAGR > ±45%/año o R² < 0.25) — proyección omitida"
+                            )
+                        else:
+                            st.info("Sin datos por cultivo para este departamento.")
+
+                # ── Info box ──
+                cls_val = dept_row['clasificacion']
+                if cultivo_global == "Todos":
+                    st.markdown(f"""
+                    <div class="info-box">
+                        <strong>{dept_terr_sel}</strong> ·
+                        Vista: <strong>Total cultivos (área agregada)</strong> ·
+                        Clasificación agregada: <strong>{cls_val}</strong> ·
+                        CAGR ponderado: <strong>{dept_row['cagr_pct']:+.1f}%</strong>
+                        {(' · ' + proj_info_str) if proj_info_str else ''}
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class="info-box">
+                        <strong>{dept_terr_sel}</strong> · Clasificación: <strong>{cls_val}</strong> ·
+                        CAGR {periodo_label}: <strong>{dept_row['cagr_pct']:+.1f}%</strong> ·
+                        R²: <strong>{dept_row['r2']:.3f}</strong>{proj_info_str}
+                    </div>
+                    """, unsafe_allow_html=True)
             else:
                 st.info("Sin datos históricos para este departamento.")
 
@@ -1604,17 +1797,23 @@ elif _page == "Clima":
                 unsafe_allow_html=True)
 
     # Fila 3 — Cuándo (meses) + agregación
+    _vi = _VAR_MAP[var_clim]
     f3a, f3b, f3c = st.columns([5, 2, 2], gap="small")
     with f3a:
-        meses_disp = st.multiselect(
-            "Meses incluidos en el análisis", _MON_NAMES, default=_MON_NAMES, key="ca_meses"
+        meses_disp = st.pills(
+            "Meses incluidos en el análisis",
+            options=_MON_NAMES,
+            default=_MON_NAMES,
+            selection_mode="multi",
+            key="ca_meses_pills",
         )
+        if not meses_disp:
+            meses_disp = list(_MON_NAMES)
     with f3b:
         granularidad = st.selectbox(
             "Granularidad", ["Mensual", "Anual", "Campaña agrícola"], key="ca_gran"
         )
     with f3c:
-        _vi = _VAR_MAP[var_clim]
         _agg_opts = ["Media", "Suma", "Máximo", "Mínimo"]
         agregacion = st.selectbox(
             "Agregación", _agg_opts, index=_agg_opts.index(_vi["agg"]), key="ca_agg"
@@ -2029,419 +2228,6 @@ elif _page == "Clima":
     st.plotly_chart(fig_main, width="stretch")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ─────────────────────────────────────────────────────────
-    # FILA SECUNDARIA: gráfico complementario + insights
-    # ─────────────────────────────────────────────────────────
-    sec_a, sec_b = st.columns([3, 2], gap="small")
-
-    with sec_a:
-        st.markdown('<div class="ap-card" style="padding:0.75rem 1rem 1rem 1rem;">', unsafe_allow_html=True)
-        fig_sec = go.Figure()
-        _sec_title = ""
-
-        if tipo_analisis == "Tendencia histórica":
-            _av   = raw_df.groupby("year")[col].agg(agg_fn)
-            _hm   = float(_av.mean())
-            _bc   = [_rgba(vcolor, 0.9) if v >= _hm else "#93c5fd" for v in _av.values]
-            fig_sec.add_trace(go.Bar(x=_av.index, y=_av.values, marker_color=_bc, name=agregacion))
-            fig_sec.add_hline(y=_hm, line_color="#374151", line_dash="dash",
-                              line_width=1.5, annotation_text="Media")
-            fig_sec.update_layout(yaxis_title=vlabel, xaxis_title="Año")
-            _sec_title = f"{agregacion} anual · {var_clim}"
-
-        elif tipo_analisis == "Estacionalidad":
-            for mi, mn in zip(_meses_presentes, _mon_labels):
-                _mv = raw_df[raw_df["month"] == mi][col].dropna().values
-                fig_sec.add_trace(go.Box(
-                    y=_mv, name=mn, marker_color=vcolor, boxmean="sd",
-                    line=dict(color="#374151", width=1), fillcolor=_rgba(vcolor, 0.25),
-                ))
-            fig_sec.update_layout(yaxis_title=vlabel, xaxis_title="Mes", showlegend=False)
-            _sec_title = f"Distribución mensual · {var_clim}"
-
-        elif tipo_analisis == "Anomalías":
-            _clm2  = raw_df.groupby("month")[col].mean()
-            _dfa2  = raw_df.copy()
-            _dfa2["anom"] = _dfa2[col] - _dfa2["month"].map(_clm2)
-            _cuman = _dfa2.groupby("year")["anom"].mean().cumsum().reset_index()
-            fig_sec.add_trace(go.Scatter(
-                x=_cuman["year"], y=_cuman["anom"],
-                mode="lines+markers", name="Anomalía acumulada",
-                fill="tozeroy", fillcolor=_rgba(vcolor, 0.12),
-                line=dict(color=vcolor, width=2),
-            ))
-            fig_sec.add_hline(y=0, line_color="#374151", line_width=1)
-            fig_sec.update_layout(yaxis_title=f"Anomalía acum. ({vunit})", xaxis_title="Año")
-            _sec_title = "Anomalía acumulada histórica"
-
-        elif tipo_analisis == "Extremos":
-            _er  = raw_df.copy()
-            _er["is_hi"] = _er[col] > raw_df[col].quantile(0.90)
-            _er["is_lo"] = _er[col] < raw_df[col].quantile(0.10)
-            _eby = _er.groupby("year")[["is_hi", "is_lo"]].sum().reset_index()
-            fig_sec.add_trace(go.Bar(x=_eby["year"], y=_eby["is_hi"],
-                                     name="Extremos altos (>P90)", marker_color="#ef4444", opacity=0.8))
-            fig_sec.add_trace(go.Bar(x=_eby["year"], y=_eby["is_lo"],
-                                     name="Extremos bajos (<P10)", marker_color="#3b82f6", opacity=0.8))
-            fig_sec.update_layout(yaxis_title="Meses extremos/año", xaxis_title="Año",
-                                  barmode="stack", legend=dict(orientation="h", y=1.08))
-            _sec_title = "Frecuencia de eventos extremos"
-
-        elif tipo_analisis == "Variabilidad":
-            _dcv  = raw_df.copy()
-            _dcv["decade"] = (_dcv["year"] // 10) * 10
-            _cvd  = (_dcv.groupby("decade")[col]
-                     .apply(lambda s: (s.std() / s.mean() * 100) if s.mean() != 0 else 0)
-                     .reset_index(name="cv"))
-            _cvd["dlabel"] = _cvd["decade"].astype(str) + "s"
-            fig_sec.add_trace(go.Bar(x=_cvd["dlabel"], y=_cvd["cv"],
-                                     marker_color=vcolor, name="CV (%)"))
-            fig_sec.update_layout(yaxis_title="Coef. Variación (%)", xaxis_title="Década")
-            _sec_title = "Variabilidad inter-anual por década"
-
-        elif tipo_analisis == "Acumulados":
-            _at    = raw_df.groupby("year")[col].agg(agg_fn)
-            _p25t  = float(_at.quantile(0.25))
-            _p75t  = float(_at.quantile(0.75))
-            _bca   = [_rgba(vcolor, 0.9) if v > _p75t else ("#3b82f6" if v < _p25t else "#6b7280")
-                      for v in _at.values]
-            fig_sec.add_trace(go.Bar(x=_at.index, y=_at.values, marker_color=_bca, name=agregacion))
-            fig_sec.add_hline(y=_p75t, line_color="#ef4444", line_dash="dot",
-                              line_width=1, annotation_text="P75")
-            fig_sec.add_hline(y=_p25t, line_color="#3b82f6", line_dash="dot",
-                              line_width=1, annotation_text="P25")
-            fig_sec.update_layout(yaxis_title=vlabel, xaxis_title="Año")
-            _sec_title = f"{agregacion} anual con percentiles"
-
-        elif tipo_analisis == "Comparación histórica":
-            _rk  = (raw_df.groupby("year")[col].agg(agg_fn)
-                    .sort_values(ascending=False).reset_index())
-            _rk.columns = ["Año", vlabel]
-            _rkc = [vcolor if yr == end_yr else "#d1d5db" for yr in _rk["Año"]]
-            fig_sec.add_trace(go.Bar(x=_rk["Año"], y=_rk[vlabel],
-                                     marker_color=_rkc, name="Valor anual"))
-            fig_sec.update_layout(yaxis_title=vlabel, xaxis_title="Año")
-            _sec_title = f"Ranking histórico · {var_clim}"
-
-        elif tipo_analisis == "Riesgo climático":
-            _clm4   = raw_df.groupby("month")[col].mean()
-            _dfr4   = raw_df.copy()
-            _dfr4["abs_anom"] = (_dfr4[col] - _dfr4["month"].map(_clm4)).abs()
-            _rmo    = _dfr4.groupby("month")["abs_anom"].mean().reset_index()
-            _rmo["mn"] = _rmo["month"].apply(lambda m: _MON_NAMES[m - 1])
-            _mx     = float(_rmo["abs_anom"].max())
-            _rc     = ["#ef4444" if v > _mx * 0.75 else ("#f59e0b" if v > _mx * 0.5 else "#22c55e")
-                       for v in _rmo["abs_anom"]]
-            fig_sec.add_trace(go.Bar(x=_rmo["mn"], y=_rmo["abs_anom"],
-                                     marker_color=_rc, name="Variabilidad"))
-            fig_sec.update_layout(yaxis_title=f"Variabilidad media ({vunit})", xaxis_title="Mes")
-            _sec_title = "Riesgo climático por mes"
-
-        fig_sec.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            template="plotly_white", height=320,
-            margin=dict(l=0, r=20, t=35, b=0),
-            title=dict(text=_sec_title, font=dict(size=13)),
-        )
-        st.plotly_chart(fig_sec, width="stretch")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with sec_b:
-        st.markdown('<div class="ap-card">', unsafe_allow_html=True)
-        section_header("Resumen analítico")
-        _ins = []
-
-        if tipo_analisis == "Tendencia histórica":
-            _tdir = "ascendente" if _trend_dec > 0 else "descendente"
-            _ins  = [
-                f"<strong>Tendencia {start_yr}–{end_yr}:</strong> {_tdir}. "
-                f"<strong>{abs(_trend_dec):.2f} {vunit}/década</strong>.",
-                f"<strong>Último año ({end_yr}):</strong> {_last_v:.1f} {vunit} · "
-                f"{'por encima' if _last_pct >= 0 else 'por debajo'} de la media en "
-                f"<strong>{abs(_last_pct):.1f}%</strong>.",
-                f"<strong>Rango histórico:</strong> {_min_v:.1f}–{_max_v:.1f} {vunit}.",
-            ]
-
-        elif tipo_analisis == "Estacionalidad":
-            _mm   = raw_df.groupby("month")[col].mean()
-            _pk   = int(_mm.idxmax())
-            _tr2  = int(_mm.idxmin())
-            _ins  = [
-                f"<strong>Mes pico:</strong> {_MON_NAMES[_pk-1]} ({_mm[_pk]:.1f} {vunit}).",
-                f"<strong>Mes mínimo:</strong> {_MON_NAMES[_tr2-1]} ({_mm[_tr2]:.1f} {vunit}).",
-                f"<strong>Amplitud estacional:</strong> {float(_mm.max()-_mm.min()):.1f} {vunit}.",
-            ]
-
-        elif tipo_analisis == "Anomalías":
-            _clmi  = raw_df.groupby("month")[col].mean()
-            _dfa3  = raw_df.copy()
-            _dfa3["anom"] = _dfa3[col] - _dfa3["month"].map(_clmi)
-            _aa3   = _dfa3.groupby("year")["anom"].mean()
-            _nab   = int((_aa3 > 0).sum())
-            _mxay  = int(_aa3.idxmax())
-            _mnay  = int(_aa3.idxmin())
-            _ins   = [
-                f"<strong>Años sobre la normal:</strong> {_nab} de {len(_aa3)} ({_nab/len(_aa3)*100:.0f}%).",
-                f"<strong>Mayor anomalía +:</strong> {_mxay} (+{_aa3[_mxay]:.2f} {vunit}).",
-                f"<strong>Mayor anomalía −:</strong> {_mnay} ({_aa3[_mnay]:.2f} {vunit}).",
-            ]
-
-        elif tipo_analisis == "Extremos":
-            _p10e = float(raw_df[col].quantile(0.10))
-            _p90e = float(raw_df[col].quantile(0.90))
-            _nhi  = int((raw_df[col] > _p90e).sum())
-            _nlo  = int((raw_df[col] < _p10e).sum())
-            _ins  = [
-                f"<strong>Umbral superior (P90):</strong> {_p90e:.1f} {vunit}.",
-                f"<strong>Umbral inferior (P10):</strong> {_p10e:.1f} {vunit}.",
-                f"<strong>Meses extremos:</strong> {_nhi} altos · {_nlo} bajos de "
-                f"{len(raw_df[col].dropna())} obs.",
-            ]
-
-        elif tipo_analisis == "Variabilidad":
-            _am2 = raw_df.groupby("year")[col].mean()
-            _as2 = raw_df.groupby("year")[col].std()
-            _cvm = float((_as2 / _am2.replace(0, float("nan"))).mean() * 100)
-            _mvy = int(_as2.idxmax())
-            _ins = [
-                f"<strong>Coef. variación medio:</strong> {_cvm:.1f}% (dispersión inter-anual).",
-                f"<strong>Año más variable:</strong> {_mvy} (σ = {_as2[_mvy]:.2f} {vunit}).",
-                f"<strong>Rango IQR anual:</strong> "
-                f"{float(_am2.quantile(0.75)-_am2.quantile(0.25)):.2f} {vunit}.",
-            ]
-
-        elif tipo_analisis == "Acumulados":
-            _ac   = raw_df.groupby("year")[col].agg(agg_fn)
-            _mxyr = int(_ac.idxmax())
-            _mnyr = int(_ac.idxmin())
-            _ins  = [
-                f"<strong>Año más alto:</strong> {_mxyr} ({_ac[_mxyr]:.1f} {vunit}).",
-                f"<strong>Año más bajo:</strong> {_mnyr} ({_ac[_mnyr]:.1f} {vunit}).",
-                f"<strong>Amplitud anual:</strong> {_ac[_mxyr]-_ac[_mnyr]:.1f} {vunit}.",
-            ]
-
-        elif tipo_analisis == "Comparación histórica":
-            _rkh = raw_df.groupby("year")[col].agg(agg_fn).sort_values(ascending=False)
-            _rp  = (list(_rkh.index).index(end_yr) + 1) if end_yr in _rkh.index else None
-            _ins = [
-                (f"<strong>{end_yr}: puesto {_rp}</strong> de {len(_rkh)} años."
-                 if _rp else f"<strong>Año {end_yr}:</strong> sin datos completos."),
-                f"<strong>Año máximo:</strong> {int(_rkh.index[0])} ({_rkh.iloc[0]:.1f} {vunit}).",
-                f"<strong>Año mínimo:</strong> {int(_rkh.index[-1])} ({_rkh.iloc[-1]:.1f} {vunit}).",
-            ]
-
-        elif tipo_analisis == "Riesgo climático":
-            _clm5  = raw_df.groupby("month")[col].mean()
-            _dfr5  = raw_df.copy()
-            _dfr5["anom"] = _dfr5[col] - _dfr5["month"].map(_clm5)
-            _rmo5  = _dfr5.groupby("month")["anom"].apply(lambda s: s.abs().mean())
-            _prm   = int(_rmo5.idxmax())
-            _lrm   = int(_rmo5.idxmin())
-            _ins   = [
-                f"<strong>Mes más variable:</strong> {_MON_NAMES[_prm-1]} "
-                f"(var. media {_rmo5[_prm]:.2f} {vunit}).",
-                f"<strong>Mes más estable:</strong> {_MON_NAMES[_lrm-1]} "
-                f"(var. media {_rmo5[_lrm]:.2f} {vunit}).",
-                f"<strong>Fuente:</strong> {fuente_ch}.",
-            ]
-
-        for _line in _ins:
-            st.markdown(f'<div class="info-box" style="margin:0.4rem 0;">{_line}</div>',
-                        unsafe_allow_html=True)
-        st.markdown(
-            f'<div style="margin-top:0.75rem;font-size:0.73rem;color:#9aa0a6;">'
-            f'<span class="badge {"badge-green" if ok_ch else "badge-amber"}">{fuente_ch}</span> · '
-            f'{lat_ca:.2f}°, {lon_ca:.2f}° · {end_yr - start_yr + 1} años</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════
-# MÓDULO 5 — OPORTUNIDAD (Simulador integrado)
-# ══════════════════════════════════════════════════════════
-elif _page == "Oportunidad":
-
-    render_page_header(
-        "Oportunidad de Mercado",
-        "Simulador de escenarios comerciales · Modelado de demanda y valor bajo distintos precios y área",
-        "Ajustá precios de granos y fertilizantes, variación de área y adopción tecnológica. "
-        "El índice de compra indica el momento óptimo para cerrar operaciones."
-    )
-
-    sim_left, sim_right = st.columns([1, 2])
-
-    with sim_left:
-        section_header("Parámetros del Escenario")
-
-        preset_col1, preset_col2, preset_col3 = st.columns(3)
-        with preset_col1:
-            pess_btn = st.button("Pesimista", key="btn_pess")
-        with preset_col2:
-            base_btn = st.button("Base", key="btn_base")
-        with preset_col3:
-            opt_btn  = st.button("Optimista", key="btn_opt")
-
-        for k, v in [('sim_soja',345),('sim_maiz',188),('sim_urea',480),
-                     ('sim_map',685),('sim_area',0),('sim_adopt',85)]:
-            if k not in st.session_state:
-                st.session_state[k] = v
-
-        if pess_btn:
-            st.session_state.update({'sim_soja':280,'sim_maiz':150,'sim_urea':550,
-                                     'sim_map':750,'sim_area':-10,'sim_adopt':70})
-            st.info("Pesimista: Soja $280 · Maíz $150 · Urea $550 · MAP $750 · Área -10% · Adopción 70%")
-        if base_btn:
-            st.session_state.update({'sim_soja':345,'sim_maiz':188,'sim_urea':480,
-                                     'sim_map':685,'sim_area':0,'sim_adopt':85})
-            st.info("Base: Soja $345 · Maíz $188 · Urea $480 · MAP $685 · Área 0% · Adopción 85%")
-        if opt_btn:
-            st.session_state.update({'sim_soja':420,'sim_maiz':230,'sim_urea':400,
-                                     'sim_map':580,'sim_area':10,'sim_adopt':95})
-            st.info("Optimista: Soja $420 · Maíz $230 · Urea $400 · MAP $580 · Área +10% · Adopción 95%")
-
-        st.markdown("---")
-        st.markdown("**Precios de granos (USD/tn)**")
-        precio_soja_sim = st.slider("Precio Soja", 200, 600, st.session_state.sim_soja, 5, key="sl_soja")
-        precio_maiz_sim = st.slider("Precio Maíz", 100, 400, st.session_state.sim_maiz, 5, key="sl_maiz")
-
-        st.markdown("**Precios de fertilizantes (USD/tn)**")
-        precio_urea_sim = st.slider("Precio Urea", 200, 800, st.session_state.sim_urea, 10, key="sl_urea")
-        precio_map_sim  = st.slider("Precio MAP",  300, 1000, st.session_state.sim_map, 10, key="sl_map")
-
-        st.markdown("**Variables de escenario**")
-        var_area_sim = st.slider("Variación Área (%)", -20, 20, st.session_state.sim_area, 1, key="sl_area")
-        adopcion_sim = st.slider("Adopción tecnológica (%)", 60, 100, st.session_state.sim_adopt, 1, key="sl_adopt")
-
-    with sim_right:
-        with st.spinner("Calculando escenario..."):
-            sim_result = engine.simulate_scenario(
-                precio_soja=precio_soja_sim, precio_maiz=precio_maiz_sim,
-                precio_urea=precio_urea_sim, precio_map=precio_map_sim,
-                var_area_pct=var_area_sim, adopcion_pct=adopcion_sim,
-            )
-
-        total_dem_sim = sim_result['total_dem_tn']
-        total_val_sim = sim_result['total_valor_musd']
-        delta_dem     = sim_result['delta_dem_pct']
-        delta_val     = sim_result['delta_val_pct']
-        gauge_val     = sim_result['gauge_compra']
-        ratios_sim_df = sim_result['ratios_sim_df']
-        top5_cambios  = sim_result['top5_cambios']
-
-        sk1, sk2, sk3, sk4 = st.columns(4)
-        with sk1:
-            st.markdown(f"""<div class="kpi-box">
-                <div class="kpi-value">{total_dem_sim/1000:.0f}K tn</div>
-                <div class="kpi-label">Demanda total</div>
-                <div class="kpi-sub">fertilizante simulado</div>
-            </div>""", unsafe_allow_html=True)
-        with sk2:
-            st.markdown(f"""<div class="kpi-box">
-                <div class="kpi-value">USD {total_val_sim:.0f}M</div>
-                <div class="kpi-label">Valor de mercado</div>
-                <div class="kpi-sub">escenario simulado</div>
-            </div>""", unsafe_allow_html=True)
-        with sk3:
-            dc = "#006B3F" if delta_dem >= 0 else "#DC2626"
-            st.markdown(f"""<div class="kpi-box">
-                <div class="kpi-value" style="color:{dc};">{delta_dem:+.1f}%</div>
-                <div class="kpi-label">Delta vs base</div>
-                <div class="kpi-sub">demanda potencial</div>
-            </div>""", unsafe_allow_html=True)
-        with sk4:
-            gc = "#006B3F" if gauge_val >= 70 else ("#F59E0B" if gauge_val >= 40 else "#DC2626")
-            st.markdown(f"""<div class="kpi-box">
-                <div class="kpi-value" style="color:{gc};">{gauge_val}/100</div>
-                <div class="kpi-label">Índice de compra</div>
-                <div class="kpi-sub">gauge momento mercado</div>
-            </div>""", unsafe_allow_html=True)
-
-        st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-
-        gcol1, gcol2 = st.columns([1, 2])
-        with gcol1:
-            fig_gauge = go.Figure(go.Indicator(
-                mode="gauge+number", value=gauge_val,
-                title={'text': "Momento de Compra", 'font': {'size': 13}},
-                gauge={
-                    'axis': {'range': [0, 100], 'tickfont': {'size': 10}},
-                    'bar': {'color': gc},
-                    'steps': [
-                        {'range': [0,  40], 'color': 'rgba(220,38,38,0.12)'},
-                        {'range': [40, 70], 'color': 'rgba(245,158,11,0.12)'},
-                        {'range': [70,100], 'color': 'rgba(0,107,63,0.12)'},
-                    ],
-                    'threshold': {'line': {'color': '#374151', 'width': 2},
-                                  'thickness': 0.75, 'value': gauge_val},
-                },
-                number={'font': {'size': 28, 'color': gc}},
-            ))
-            fig_gauge.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)', height=250,
-                margin=dict(l=20, r=20, t=40, b=0),
-            )
-            st.plotly_chart(fig_gauge, width='stretch')
-
-        with gcol2:
-            section_header("Ratios Simulados vs Base")
-            if not ratios_sim_df.empty:
-                ratios_display = ratios_sim_df[
-                    (ratios_sim_df['grano'].isin(['Soja', 'Maíz'])) &
-                    (ratios_sim_df['fertilizante'].isin(['Urea', 'MAP']))
-                ].copy()
-                if ratios_display.empty:
-                    ratios_display = ratios_sim_df.head(10).copy()
-                ratios_display['ratio_sim']  = ratios_display['ratio_sim'].apply(lambda x: f"{x:.2f}")
-                ratios_display['ratio_base'] = ratios_display['ratio_base'].apply(lambda x: f"{x:.2f}")
-                ratios_display['delta']      = ratios_display['delta'].apply(lambda x: f"{x:+.2f}")
-                ratios_display = ratios_display.rename(columns={
-                    'grano':'Grano','fertilizante':'Fertilizante',
-                    'ratio_sim':'Ratio Sim.','ratio_base':'Ratio Base','delta':'Delta',
-                })
-                def _highlight_delta(val):
-                    try:
-                        v = float(val)
-                        if v < 0: return 'color:#006B3F;font-weight:600'
-                        elif v > 0: return 'color:#DC2626;font-weight:600'
-                    except Exception:
-                        pass
-                    return ''
-                st.dataframe(
-                    ratios_display.style.map(_highlight_delta, subset=['Delta']),
-                    width='stretch', hide_index=True,
-                )
-
-        st.markdown("---")
-        section_header("Top 5 Zonas con Mayor Cambio")
-        if not top5_cambios.empty:
-            t5 = top5_cambios.copy()
-            t5['delta_pct']  = t5['delta_pct'].apply(lambda x: f"{x:+.1f}%")
-            t5['dem_sim_tn'] = t5['dem_sim_tn'].apply(lambda x: f"{x:,.0f}")
-            t5 = t5.rename(columns={'departamento':'Departamento','provincia':'Provincia',
-                                    'cultivo':'Cultivo','dem_sim_tn':'Demanda sim. (tn)',
-                                    'delta_pct':'Delta vs base'})
-            st.dataframe(t5, width='stretch', hide_index=True)
-
-        if var_area_sim < -5 and precio_soja_sim < 300:
-            escenario_nombre = "PESIMISTA"
-        elif var_area_sim > 5 and precio_soja_sim > 380:
-            escenario_nombre = "OPTIMISTA"
-        else:
-            escenario_nombre = "PERSONALIZADO"
-
-        st.markdown(f"""
-        <div class="info-box">
-            <strong>Resumen Escenario {escenario_nombre}:</strong><br>
-            Soja USD {precio_soja_sim}/tn · Maíz USD {precio_maiz_sim}/tn ·
-            Urea USD {precio_urea_sim}/tn · MAP USD {precio_map_sim}/tn ·
-            Área {var_area_sim:+.0f}% · Adopción {adopcion_sim}%<br><br>
-            <strong>Resultado:</strong> Demanda total <strong>{total_dem_sim/1000:.0f}K tn</strong>
-            ({delta_dem:+.1f}% vs base) ·
-            Valor <strong>USD {total_val_sim:.0f}M</strong> ({delta_val:+.1f}% vs base) ·
-            Índice de compra: <strong>{gauge_val}/100</strong>
-        </div>
-        """, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════
