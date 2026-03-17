@@ -621,20 +621,22 @@ with st.sidebar:
             </div>
             <a href="https://www.linkedin.com/in/joseantoniosotomayor/" target="_blank"
                rel="noopener noreferrer"
-               style="display:inline-flex; align-items:center; gap:6px; margin-top:9px;
-                      background:#0A66C2; color:#fff; text-decoration:none;
-                      font-size:0.72rem; font-weight:600; border-radius:5px;
-                      padding:5px 11px; line-height:1;">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-                </svg>
-                Ver LinkedIn
+               style="display:inline-block; margin-top:7px; color:#0A66C2;
+                      font-size:0.72rem; font-weight:600; text-decoration:none;">
+                Ver LinkedIn »
             </a>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     st.divider()
+
+    _page = st.radio(
+        "Módulos",
+        ["Priority Score", "Potencial de Mercado", "Evolución y Proyección", "Clima"],
+        index=0,
+        key="sidebar_nav",
+    )
 
     st.divider()
 
@@ -718,18 +720,10 @@ def app_header():
 
 app_header()
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "⭐ Priority Score",
-    "🗺️ Potencial de Mercado",
-    "📊 Evolución y Proyección",
-    "🌡️ Clima",
-])
-
-
 # ══════════════════════════════════════════════════════════
 # MÓDULO 1 — PRIORITY SCORE
 # ══════════════════════════════════════════════════════════
-with tab1:
+if _page == "Priority Score":
 
     render_page_header(
         "Score de Prioridad Comercial",
@@ -1117,7 +1111,7 @@ Podés ajustar los pesos en "Personalizar pesos" para reflejar la estrategia de 
 # ══════════════════════════════════════════════════════════
 # MÓDULO 2 — POTENCIAL DE MERCADO
 # ══════════════════════════════════════════════════════════
-with tab2:
+elif _page == "Potencial de Mercado":
 
     render_page_header(
         "Potencial de Mercado",
@@ -1348,7 +1342,7 @@ with tab2:
 # ══════════════════════════════════════════════════════════
 # MÓDULO 3 — EVOLUCIÓN Y PROYECCIÓN
 # ══════════════════════════════════════════════════════════
-with tab3:
+elif _page == "Evolución y Proyección":
 
     render_page_header(
         "Evolución y Proyección Territorial",
@@ -1696,7 +1690,7 @@ with tab3:
 # ══════════════════════════════════════════════════════════
 # MÓDULO 4 — ANÁLISIS CLIMÁTICO
 # ══════════════════════════════════════════════════════════
-with tab4:
+elif _page == "Clima":
 
     render_page_header(
         "Análisis Climático",
