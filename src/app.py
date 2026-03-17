@@ -78,6 +78,23 @@ html, body, [class*="css"] {
 [data-testid="stSidebar"] * { color: var(--gray-900) !important; }
 [data-testid="stSidebar"] a[href*="linkedin"] { color: #fff !important; }
 
+/* ── BOTÓN COLAPSAR/EXPANDIR SIDEBAR ── */
+[data-testid="stSidebarCollapseButton"] button,
+[data-testid="collapsedControl"] button {
+    background-color: var(--g-dark) !important;
+    color: #fff !important;
+    border-radius: 0 6px 6px 0 !important;
+    width: 24px !important;
+    height: 48px !important;
+    border: none !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+[data-testid="stSidebarCollapseButton"] button:hover,
+[data-testid="collapsedControl"] button:hover {
+    background-color: var(--g-accent) !important;
+}
+
 /* Sidebar nav radio */
 [data-testid="stSidebar"] .stRadio [data-testid="stWidgetLabel"] {
     font-size: 0.65rem !important;
