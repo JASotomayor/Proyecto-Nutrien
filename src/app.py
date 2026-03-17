@@ -8,7 +8,6 @@ import io
 import datetime
 from pathlib import Path
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -77,22 +76,10 @@ html, body, [class*="css"] {
 [data-testid="stSidebar"] * { color: var(--gray-900) !important; }
 [data-testid="stSidebar"] a[href*="linkedin"] { color: #fff !important; }
 
-/* ── BOTÓN COLAPSAR/EXPANDIR SIDEBAR ── */
-[data-testid="stSidebarCollapseButton"] button,
-[data-testid="collapsedControl"] button {
-    background-color: var(--g-dark) !important;
-    color: #fff !important;
-    border-radius: 0 6px 6px 0 !important;
-    width: 1.5rem !important;
-    height: 3rem !important;
-    border: none !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    display: flex !important;
-}
-[data-testid="stSidebarCollapseButton"] button:hover,
-[data-testid="collapsedControl"] button:hover {
-    background-color: var(--g-accent) !important;
+/* ── SIDEBAR SIEMPRE VISIBLE ── */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"] {
+    display: none !important;
 }
 
 /* Sidebar nav radio */
@@ -743,35 +730,6 @@ def app_header():
 
 app_header()
 
-# Botón flotante para expandir sidebar cuando está colapsado
-components.html("""
-<script>
-(function() {
-    var p = window.parent.document;
-    function fixBtn() {
-        var btn = p.querySelector('[data-testid="collapsedControl"] button');
-        if (btn) {
-            btn.style.cssText = [
-                'background-color:#006B3F',
-                'color:#fff',
-                'width:1.5rem',
-                'height:3rem',
-                'border:none',
-                'border-radius:0 6px 6px 0',
-                'opacity:1',
-                'visibility:visible',
-                'display:flex',
-                'cursor:pointer',
-                'position:relative',
-                'z-index:99999'
-            ].join('!important;') + '!important';
-        }
-    }
-    fixBtn();
-    new MutationObserver(fixBtn).observe(p.body, {childList:true, subtree:true});
-})();
-</script>
-""", height=0)
 
 # ══════════════════════════════════════════════════════════
 # MÓDULO 1 — PRIORITY SCORE
