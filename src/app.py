@@ -76,6 +76,7 @@ html, body, [class*="css"] {
     max-width: 220px !important;
 }
 [data-testid="stSidebar"] * { color: var(--gray-900) !important; }
+[data-testid="stSidebar"] a[href*="linkedin"] { color: #fff !important; }
 
 /* Sidebar nav radio */
 [data-testid="stSidebar"] .stRadio [data-testid="stWidgetLabel"] {
