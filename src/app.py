@@ -603,13 +603,6 @@ def render_styled_table(df: pd.DataFrame, max_rows: int = 50) -> None:
 # ══════════════════════════════════════════════════════════
 # SIDEBAR — NAVEGACIÓN
 # ══════════════════════════════════════════════════════════
-_NAV_OPTIONS = [
-    "Priority Score",
-    "Potencial de Mercado",
-    "Evolución y Proyección",
-    "Clima",
-]
-
 with st.sidebar:
     st.markdown("""
     <div style="padding: 1.1rem 0.9rem 0.5rem 0.9rem;">
@@ -642,8 +635,6 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.divider()
-
-    _page = st.radio("Módulos", _NAV_OPTIONS, index=0, key="sidebar_nav")
 
     st.divider()
 
@@ -727,48 +718,18 @@ def app_header():
 
 app_header()
 
-if st.session_state.get("top_nav") != _page:
-    st.session_state["top_nav"] = _page
-
-st.markdown('<div class="ap-card" style="padding:1rem 1.25rem 0.8rem 1.25rem;">', unsafe_allow_html=True)
-st.markdown(
-    '<div style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;'
-    'text-transform:uppercase;color:#5F6368;margin-bottom:0.55rem;">Navegacion del dashboard</div>',
-    unsafe_allow_html=True,
-)
-_page = st.radio(
-    "Módulos",
-    _NAV_OPTIONS,
-    key="top_nav",
-    horizontal=True,
-    label_visibility="collapsed",
-)
-with st.expander("Guia y fuentes del dashboard"):
-    st.markdown("""
-**Modulos**
-
-- **Priority Score**: ranking comercial 0-100 por territorio.
-- **Potencial de Mercado**: demanda potencial de fertilizantes por departamento.
-- **Evolucion y Proyeccion**: clasificacion territorial y tendencia historica.
-- **Clima**: condiciones climaticas y su relacion con produccion.
-
-**Fuentes**
-
-- SIIA / MAGyP
-- INTA EEA Marcos Juarez
-- NASA POWER API
-- CIAFA
-- MATBA-ROFEX
-- BCR 2024/25
-- NOAA CPC
-    """)
-st.markdown("</div>", unsafe_allow_html=True)
+tab1, tab2, tab3, tab4 = st.tabs([
+    "⭐ Priority Score",
+    "🗺️ Potencial de Mercado",
+    "📊 Evolución y Proyección",
+    "🌡️ Clima",
+])
 
 
 # ══════════════════════════════════════════════════════════
 # MÓDULO 1 — PRIORITY SCORE
 # ══════════════════════════════════════════════════════════
-if _page == "Priority Score":
+with tab1:
 
     render_page_header(
         "Score de Prioridad Comercial",
@@ -1156,7 +1117,7 @@ Podés ajustar los pesos en "Personalizar pesos" para reflejar la estrategia de 
 # ══════════════════════════════════════════════════════════
 # MÓDULO 2 — POTENCIAL DE MERCADO
 # ══════════════════════════════════════════════════════════
-elif _page == "Potencial de Mercado":
+with tab2:
 
     render_page_header(
         "Potencial de Mercado",
@@ -1387,7 +1348,7 @@ elif _page == "Potencial de Mercado":
 # ══════════════════════════════════════════════════════════
 # MÓDULO 3 — EVOLUCIÓN Y PROYECCIÓN
 # ══════════════════════════════════════════════════════════
-elif _page == "Evolución y Proyección":
+with tab3:
 
     render_page_header(
         "Evolución y Proyección Territorial",
@@ -1735,7 +1696,7 @@ elif _page == "Evolución y Proyección":
 # ══════════════════════════════════════════════════════════
 # MÓDULO 4 — ANÁLISIS CLIMÁTICO
 # ══════════════════════════════════════════════════════════
-elif _page == "Clima":
+with tab4:
 
     render_page_header(
         "Análisis Climático",
