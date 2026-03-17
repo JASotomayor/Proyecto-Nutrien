@@ -72,48 +72,24 @@ html, body, [class*="css"] {
 [data-testid="stSidebar"] {
     background-color: var(--white) !important;
     border-right: 1px solid var(--gray-200) !important;
-    min-width: 220px !important;
-    max-width: 220px !important;
 }
 [data-testid="stSidebar"] * { color: var(--gray-900) !important; }
 [data-testid="stSidebar"] a[href*="linkedin"] { color: #fff !important; }
 
-/* ── BOTÓN COLAPSAR SIDEBAR (cuando está abierto) ── */
-[data-testid="stSidebarCollapseButton"] button {
-    background-color: var(--g-dark) !important;
-    color: #fff !important;
-    border-radius: 0 6px 6px 0 !important;
-    width: 24px !important;
-    height: 48px !important;
-    border: none !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-}
-[data-testid="stSidebarCollapseButton"] button:hover {
-    background-color: var(--g-accent) !important;
-}
-
-/* ── BOTÓN EXPANDIR SIDEBAR (cuando está cerrado) ── */
-[data-testid="collapsedControl"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    position: fixed !important;
-    left: 0 !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    z-index: 999 !important;
-}
+/* ── BOTÓN COLAPSAR/EXPANDIR SIDEBAR ── */
+[data-testid="stSidebarCollapseButton"] button,
 [data-testid="collapsedControl"] button {
     background-color: var(--g-dark) !important;
     color: #fff !important;
     border-radius: 0 6px 6px 0 !important;
-    width: 24px !important;
-    height: 48px !important;
+    width: 1.5rem !important;
+    height: 3rem !important;
     border: none !important;
     opacity: 1 !important;
     visibility: visible !important;
+    display: flex !important;
 }
+[data-testid="stSidebarCollapseButton"] button:hover,
 [data-testid="collapsedControl"] button:hover {
     background-color: var(--g-accent) !important;
 }
