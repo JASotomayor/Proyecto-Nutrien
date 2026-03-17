@@ -727,6 +727,44 @@ def app_header():
 
 app_header()
 
+if st.session_state.get("top_nav") != _page:
+    st.session_state["top_nav"] = _page
+
+st.markdown('<div class="ap-card" style="padding:1rem 1.25rem 0.8rem 1.25rem;">', unsafe_allow_html=True)
+st.markdown(
+    '<div style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;'
+    'text-transform:uppercase;color:#5F6368;margin-bottom:0.55rem;">Navegacion del dashboard</div>',
+    unsafe_allow_html=True,
+)
+_page = st.radio(
+    "Módulos",
+    _NAV_OPTIONS,
+    key="top_nav",
+    horizontal=True,
+    label_visibility="collapsed",
+)
+st.session_state["sidebar_nav"] = _page
+with st.expander("Guia y fuentes del dashboard"):
+    st.markdown("""
+**Modulos**
+
+- **Priority Score**: ranking comercial 0-100 por territorio.
+- **Potencial de Mercado**: demanda potencial de fertilizantes por departamento.
+- **Evolucion y Proyeccion**: clasificacion territorial y tendencia historica.
+- **Clima**: condiciones climaticas y su relacion con produccion.
+
+**Fuentes**
+
+- SIIA / MAGyP
+- INTA EEA Marcos Juarez
+- NASA POWER API
+- CIAFA
+- MATBA-ROFEX
+- BCR 2024/25
+- NOAA CPC
+    """)
+st.markdown("</div>", unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════
 # MÓDULO 1 — PRIORITY SCORE
