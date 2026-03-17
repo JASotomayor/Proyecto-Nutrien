@@ -8,6 +8,7 @@ import io
 import datetime
 from pathlib import Path
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -483,77 +484,159 @@ section[data-testid="stMainBlockContainer"],
 }
 
 /* ══════════════════════════════════════════════════════════
-   MÓVIL — sólo afecta pantallas ≤ 768px
+   BOTTOM NAV — base (oculto por defecto, visible en móvil)
+   ══════════════════════════════════════════════════════════ */
+#ap-mob-nav {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 62px;
+    background: #fff;
+    border-top: 2px solid #006B3F;
+    box-shadow: 0 -2px 16px rgba(0,0,0,0.10);
+    z-index: 99999;
+    justify-content: space-around;
+    align-items: stretch;
+}
+.ap-mob-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    border-top: 3px solid transparent;
+    margin-top: -2px;
+    cursor: pointer;
+    font-size: 0.58rem;
+    font-weight: 500;
+    color: #5F6368;
+    font-family: Inter, sans-serif;
+    gap: 3px;
+    padding: 4px 2px;
+    transition: color 0.12s;
+    -webkit-tap-highlight-color: transparent;
+    min-height: 44px;
+}
+.ap-mob-btn .ap-icon { font-size: 1.25rem; line-height: 1; }
+.ap-mob-btn.active {
+    color: #006B3F;
+    border-top-color: #006B3F;
+    font-weight: 700;
+}
+.ap-mob-btn:active { background: rgba(0,107,63,0.06); }
+
+/* ══════════════════════════════════════════════════════════
+   MÓVIL — mobile-first, sólo ≤ 768px
    ══════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
 
-    /* Restaurar botón para abrir/cerrar sidebar en móvil */
+    /* Mostrar bottom nav */
+    #ap-mob-nav { display: flex !important; }
+
+    /* Ocultar sidebar completa — navegación va en bottom nav */
+    [data-testid="stSidebar"],
     [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"] {
-        display: flex !important;
+        display: none !important;
     }
 
-    /* Padding del área principal reducido */
+    /* Padding principal: compacto + espacio para bottom nav */
     section[data-testid="stMainBlockContainer"],
     .main .block-container {
         padding-left: 0.75rem !important;
         padding-right: 0.75rem !important;
         padding-top: 0.5rem !important;
+        padding-bottom: 78px !important;
+        max-width: 100vw !important;
     }
 
-    /* Header de página más compacto */
-    .page-title  { font-size: 1.05rem !important; }
-    .page-subtitle { font-size: 0.75rem !important; }
-    .page-desc   { font-size: 0.78rem !important; }
+    /* Apilar TODAS las columnas en vertical */
+    [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+        gap: 0.5rem !important;
+    }
+    [data-testid="stHorizontalBlock"] > div,
+    [data-testid="stHorizontalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] {
+        width: 100% !important;
+        min-width: 100% !important;
+        flex: 1 1 100% !important;
+    }
 
-    /* KPI cards más pequeñas */
+    /* Header de página: pantalla completa tipo app */
+    .page-header { padding: 0.4rem 0 0.9rem 0 !important; margin-bottom: 1rem !important; }
+    .page-title  { font-size: 1.15rem !important; }
+    .page-subtitle { font-size: 0.76rem !important; }
+    .page-desc   { font-size: 0.78rem !important; line-height: 1.5 !important; }
+
+    /* KPI cards: 2x2 con buen tamaño táctil */
     .kpi-box {
-        min-height: 68px !important;
-        padding: 0.6rem 0.8rem !important;
+        min-height: 80px !important;
+        padding: 0.8rem 1rem !important;
     }
-    .kpi-value { font-size: 1.25rem !important; }
-    .kpi-label { font-size: 0.62rem !important; }
+    .kpi-value { font-size: 1.5rem !important; }
+    .kpi-label { font-size: 0.65rem !important; }
+    .kpi-sub   { font-size: 0.7rem !important; }
 
-    /* Score grid: 1 columna en vez de 3 */
-    .score-grid {
-        grid-template-columns: 1fr !important;
-    }
+    /* Score grid: 1 columna */
+    .score-grid { grid-template-columns: 1fr !important; }
 
-    /* Tablas con scroll horizontal táctil */
+    /* Tablas: scroll táctil */
     div[style*="overflow-x:auto"],
     div[style*="overflow-x: auto"] {
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch !important;
     }
-    .saas-table {
-        font-size: 0.72rem !important;
-        min-width: 480px;
-    }
-    .saas-table thead th { padding: 0.4rem 0.6rem !important; }
-    .saas-table tbody td { padding: 0.32rem 0.6rem !important; }
+    .saas-table { font-size: 0.72rem !important; min-width: 460px; }
+    .saas-table thead th { padding: 0.35rem 0.5rem !important; }
+    .saas-table tbody td { padding: 0.3rem 0.5rem !important; }
 
-    /* Cards con menos padding */
-    .ap-card { padding: 0.85rem !important; }
+    /* Cards */
+    .ap-card { padding: 0.85rem !important; margin-bottom: 0.75rem !important; }
+
+    /* Inputs y selects: altura táctil */
+    .stSelectbox > div > div,
+    .stMultiSelect > div > div {
+        min-height: 44px !important;
+    }
+
+    /* Botones: área táctil completa */
+    .stButton > button {
+        width: 100% !important;
+        min-height: 44px !important;
+        font-size: 0.95rem !important;
+    }
+
+    /* Pills: área táctil grande */
+    [data-testid="stPills"] [data-baseweb="tag"] {
+        font-size: 0.88rem !important;
+        padding: 0.55rem 1rem !important;
+        min-height: 40px !important;
+    }
+
+    /* Sliders: pista más gruesa */
+    [data-testid="stSlider"] [role="slider"] {
+        width: 24px !important;
+        height: 24px !important;
+    }
+
+    /* Expanders: borde más suave */
+    [data-testid="stExpander"] summary {
+        font-size: 0.9rem !important;
+        padding: 0.75rem !important;
+        min-height: 44px !important;
+    }
 
     /* Footer compacto */
     .ap-footer {
-        font-size: 0.63rem !important;
+        font-size: 0.62rem !important;
         padding: 0.6rem 0.75rem !important;
-        line-height: 1.6 !important;
+        line-height: 1.55 !important;
     }
 
-    /* Botones a ancho completo */
-    .stButton > button {
-        width: 100% !important;
-        font-size: 0.9rem !important;
-        padding: 0.55rem 1rem !important;
-    }
-
-    /* Pills: tamaño táctil */
-    [data-testid="stPills"] [data-baseweb="tag"] {
-        font-size: 0.9rem !important;
-        padding: 0.55rem 1rem !important;
-    }
+    /* Ocultar elementos no esenciales en móvil */
+    .source-tag { display: none !important; }
 }
 
 </style>
@@ -804,6 +887,45 @@ def app_header():
 
 app_header()
 
+# ── BOTTOM NAV MÓVIL ──────────────────────────────────────
+_NAV_PAGES = ["Priority Score", "Potencial de Mercado", "Evolución y Proyección", "Clima"]
+_curr_idx = _NAV_PAGES.index(st.session_state.get("sidebar_nav", "Priority Score"))
+components.html(f"""
+<script>
+(function(){{
+  var pd = window.parent.document;
+  var ci = {_curr_idx};
+  function sync(){{
+    pd.querySelectorAll('.ap-mob-btn').forEach(function(b,i){{
+      b.classList.toggle('active', i===ci);
+    }});
+  }}
+  if(pd.getElementById('ap-mob-nav')){{ sync(); return; }}
+  var nav = pd.createElement('div');
+  nav.id = 'ap-mob-nav';
+  var labels = ['Score','Mercado','Evolución','Clima'];
+  var icons  = ['⭐','🗺️','📊','🌡️'];
+  labels.forEach(function(lbl,idx){{
+    var btn = pd.createElement('button');
+    btn.className = 'ap-mob-btn' + (idx===ci?' active':'');
+    btn.setAttribute('data-idx', idx);
+    btn.innerHTML = '<span class="ap-icon">'+icons[idx]+'</span><span>'+lbl+'</span>';
+    btn.addEventListener('click', function(){{
+      pd.querySelectorAll('.ap-mob-btn').forEach(function(b,i){{
+        b.classList.toggle('active', i===idx);
+      }});
+      var radios = pd.querySelectorAll('[data-testid="stSidebar"] label');
+      if(radios[idx]) radios[idx].click();
+    }});
+    nav.appendChild(btn);
+  }});
+  pd.body.appendChild(nav);
+  new MutationObserver(function(){{
+    if(!pd.getElementById('ap-mob-nav')) pd.body.appendChild(nav);
+  }}).observe(pd.body, {{childList:true}});
+}})();
+</script>
+""", height=0, scrolling=False)
 
 # ══════════════════════════════════════════════════════════
 # MÓDULO 1 — PRIORITY SCORE
