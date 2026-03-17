@@ -1286,18 +1286,18 @@ elif _page == "Potencial de Mercado":
             ))
         if show_competitors:
             comp_locs = pd.read_csv(_DATA_DIR / 'competitor_locations.csv')
-            # Borde exterior (contraste)
+            # Competencia — borde negro
             fig_mkt.add_trace(go.Scattermap(
                 lat=comp_locs['lat'], lon=comp_locs['lon'], mode='markers',
-                marker=go.scattermap.Marker(size=20, color='white', symbol='circle', opacity=1.0),
+                marker=go.scattermap.Marker(size=18, color='black', symbol='circle', opacity=1.0),
                 hoverinfo='skip', showlegend=False,
             ))
-            # Punto Competencia — diamante rojo (forma distinta)
+            # Competencia — relleno rojo
             fig_mkt.add_trace(go.Scattermap(
                 lat=comp_locs['lat'], lon=comp_locs['lon'], mode='markers',
-                marker=go.scattermap.Marker(size=13, color='#DC2626', symbol='diamond', opacity=1.0),
+                marker=go.scattermap.Marker(size=13, color='#DC2626', symbol='circle', opacity=1.0),
                 hovertext=comp_locs['localidad'].apply(lambda x: f"🔴 Competencia — {x}"),
-                hoverinfo='text', name='◆ Competencia',
+                hoverinfo='text', name='● Competencia',
             ))
 
         fig_mkt.update_layout(
