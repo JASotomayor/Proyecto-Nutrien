@@ -58,9 +58,16 @@ st.markdown("""
         background-color: var(--nutrien-gray-100);
     }
 
-    /* ─── HEADER (to be replaced by custom html) ─── */
+    /* ─── STREAMLIT CHROME ─── */
+    /* Keep the native header mounted so the sidebar toggle remains usable in Cloud deploys. */
     [data-testid="stHeader"] {
-        display: none;
+        background: transparent;
+    }
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    #MainMenu {
+        display: none !important;
     }
 
     /* ─── TABS ─── */
@@ -238,7 +245,7 @@ st.markdown("""
 def create_pdf(text):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
+    pdf.set_font("helvetica", size=12)
     pdf.cell(200, 10, txt="Business Case Argumentator", ln=1, align="C")
     pdf.multi_cell(0, 10, txt=text)
     buffer = BytesIO()
@@ -331,7 +338,7 @@ with st.sidebar:
         help="Filtra todos los módulos por este cultivo"
     )
 
-    provincias_disponibles = sorted(engine._load_siia_data()['provincia'].unique().tolist())
+    provincias_disponibles = sorted(engine._load_siia_data()['provincia'].dropna().astype(str).unique().tolist())
     provincia_global = st.selectbox(
         "Provincia",
         options=["Todas"] + provincias_disponibles,
@@ -514,7 +521,7 @@ with tab1:
     # ── FILTROS Y PESOS ──────────────────────────────────
     ps_f1, ps_f2, ps_f3 = st.columns([2, 2, 2])
     with ps_f1:
-        _provs_ps = ["Todas"] + sorted(score_df_base['provincia'].unique().tolist())
+        _provs_ps = ["Todas"] + sorted(score_df_base['provincia'].dropna().astype(str).unique().tolist())
         prov_ps = st.selectbox("Provincia", _provs_ps, key="ps_prov")
     with ps_f2:
         min_score_ps = st.slider("Score mínimo", min_value=0, max_value=90, value=0, step=5, key="ps_min")
@@ -819,7 +826,7 @@ with tab2:
                                        key="mkt_cultivo")
         with fa_col2:
             _sup_df = engine._load_siia_data()
-            prov_opts_mkt = ["Todas"] + sorted(_sup_df['provincia'].unique().tolist())
+            prov_opts_mkt = ["Todas"] + sorted(_sup_df['provincia'].dropna().astype(str).unique().tolist())
             prov_mkt_idx = prov_opts_mkt.index(provincia_global) if provincia_global in prov_opts_mkt else 0
             prov_mkt = st.selectbox("Provincia", prov_opts_mkt,
                                     index=prov_mkt_idx,
@@ -2251,6 +2258,6 @@ st.markdown(f"""
     Datos de referencia actualizados a Marzo 2025 ·
     Proyecciones con fines comerciales exclusivamente ·
     No constituyen asesoramiento de inversión.<br>
-    <em>Generado: {today_str} · Stack: Python 3.12 · Streamlit 1.55 · Plotly 6.x · Pandas 2.3</em>
+    <em>Generado: {datetime.date.today().strftime("%d/%m/%Y")} · Stack: Python 3.12 · Streamlit 1.55 · Plotly 6.x · Pandas 2.3</em>
 </div>
 """, unsafe_allow_html=True)
