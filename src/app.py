@@ -482,6 +482,80 @@ section[data-testid="stMainBlockContainer"],
     box-shadow: var(--shadow);
 }
 
+/* ══════════════════════════════════════════════════════════
+   MÓVIL — sólo afecta pantallas ≤ 768px
+   ══════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+    /* Restaurar botón para abrir/cerrar sidebar en móvil */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+    }
+
+    /* Padding del área principal reducido */
+    section[data-testid="stMainBlockContainer"],
+    .main .block-container {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        padding-top: 0.5rem !important;
+    }
+
+    /* Header de página más compacto */
+    .page-title  { font-size: 1.05rem !important; }
+    .page-subtitle { font-size: 0.75rem !important; }
+    .page-desc   { font-size: 0.78rem !important; }
+
+    /* KPI cards más pequeñas */
+    .kpi-box {
+        min-height: 68px !important;
+        padding: 0.6rem 0.8rem !important;
+    }
+    .kpi-value { font-size: 1.25rem !important; }
+    .kpi-label { font-size: 0.62rem !important; }
+
+    /* Score grid: 1 columna en vez de 3 */
+    .score-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Tablas con scroll horizontal táctil */
+    div[style*="overflow-x:auto"],
+    div[style*="overflow-x: auto"] {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+    .saas-table {
+        font-size: 0.72rem !important;
+        min-width: 480px;
+    }
+    .saas-table thead th { padding: 0.4rem 0.6rem !important; }
+    .saas-table tbody td { padding: 0.32rem 0.6rem !important; }
+
+    /* Cards con menos padding */
+    .ap-card { padding: 0.85rem !important; }
+
+    /* Footer compacto */
+    .ap-footer {
+        font-size: 0.63rem !important;
+        padding: 0.6rem 0.75rem !important;
+        line-height: 1.6 !important;
+    }
+
+    /* Botones a ancho completo */
+    .stButton > button {
+        width: 100% !important;
+        font-size: 0.9rem !important;
+        padding: 0.55rem 1rem !important;
+    }
+
+    /* Pills: tamaño táctil */
+    [data-testid="stPills"] [data-baseweb="tag"] {
+        font-size: 0.9rem !important;
+        padding: 0.55rem 1rem !important;
+    }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
