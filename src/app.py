@@ -8,6 +8,7 @@ import io
 import datetime
 from pathlib import Path
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -741,6 +742,36 @@ def app_header():
     """, unsafe_allow_html=True)
 
 app_header()
+
+# Botón flotante para expandir sidebar cuando está colapsado
+components.html("""
+<script>
+(function() {
+    var p = window.parent.document;
+    function fixBtn() {
+        var btn = p.querySelector('[data-testid="collapsedControl"] button');
+        if (btn) {
+            btn.style.cssText = [
+                'background-color:#006B3F',
+                'color:#fff',
+                'width:1.5rem',
+                'height:3rem',
+                'border:none',
+                'border-radius:0 6px 6px 0',
+                'opacity:1',
+                'visibility:visible',
+                'display:flex',
+                'cursor:pointer',
+                'position:relative',
+                'z-index:99999'
+            ].join('!important;') + '!important';
+        }
+    }
+    fixBtn();
+    new MutationObserver(fixBtn).observe(p.body, {childList:true, subtree:true});
+})();
+</script>
+""", height=0)
 
 # ══════════════════════════════════════════════════════════
 # MÓDULO 1 — PRIORITY SCORE
