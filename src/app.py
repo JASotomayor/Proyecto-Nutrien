@@ -743,7 +743,6 @@ _page = st.radio(
     horizontal=True,
     label_visibility="collapsed",
 )
-st.session_state["sidebar_nav"] = _page
 with st.expander("Guia y fuentes del dashboard"):
     st.markdown("""
 **Modulos**
